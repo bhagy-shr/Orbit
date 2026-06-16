@@ -186,7 +186,7 @@ def apply_global_css():
         /* Hide default Streamlit footer */
         footer {visibility: hidden;}
         #MainMenu {visibility: hidden;}
-        header {visibility: hidden;}
+        header {background: transparent !important;}
         </style>
         """,
         unsafe_allow_html=True
