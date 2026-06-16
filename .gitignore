@@ -1,0 +1,20 @@
+# API Keys and Secrets
+KEY.mD
+
+# Local Databases
+orbit.db
+orbit.db-journal
+
+# Python Virtual Environment
+venv/
+ENV/
+env/
+
+# Python caching
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Streamlit local state / secrets
+.streamlit/secrets.toml
