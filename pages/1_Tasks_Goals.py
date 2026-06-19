@@ -132,7 +132,7 @@ with col_tasks:
     # Add Task Form
     with st.expander("➕ Add New Task", expanded=False):
         with st.form("add_task_full_form", clear_on_submit=True):
-            new_title = st.text_input("Task Title", placeholder="e.g. Prepare for DSA midterm")
+            new_title = st.text_input("Task Title", placeholder="e.g. Complete Chemistry assignment")
             col_date, col_priority = st.columns(2)
             with col_date:
                 new_deadline = st.date_input("Deadline", value=datetime.date.today())

@@ -17,12 +17,12 @@ with st.form("onboarding_form"):
     with col1:
         wake_time = st.selectbox(
             "waking time range", 
-            ["05:00 AM", "06:00 AM", "07:00 AM", "08:00 AM", "09:00 AM", "10:00 AM"]
+            ["05:00", "06:00", "07:00", "08:00", "09:00", "10:00"]
         )
     with col2:
         sleep_time = st.selectbox(
             "sleeping time range", 
-            ["09:00 PM", "10:00 PM", "11:00 PM", "12:00 AM", "01:00 AM", "02:00 AM"]
+            ["21:00", "22:00", "23:00", "00:00", "01:00", "02:00"]
         )
     with col3:
         active_time = st.selectbox(
@@ -33,11 +33,11 @@ with st.form("onboarding_form"):
     st.subheader("Meal Schedules")
     col_b, col_l, col_d = st.columns(3)
     with col_b:
-        breakfast_t = st.selectbox("Breakfast time", ["07:30 AM", "08:00 AM", "08:30 AM", "09:00 AM", "09:30 AM"])
+        breakfast_t = st.selectbox("Breakfast time", ["07:00", "07:30", "08:00", "08:30", "09:00", "09:30"])
     with col_l:
-        lunch_t = st.selectbox("Lunch time", ["12:30 PM", "01:00 PM", "01:30 PM", "02:00 PM", "02:30 PM"])
+        lunch_t = st.selectbox("Lunch time", ["12:00", "12:30", "13:00", "13:30", "14:00", "14:30"])
     with col_d:
-        dinner_t = st.selectbox("Dinner time", ["07:30 PM", "08:00 PM", "08:30 PM", "09:00 PM", "09:30 PM"])
+        dinner_t = st.selectbox("Dinner time", ["19:00", "19:30", "20:00", "20:30", "21:00", "21:30"])
         
     st.subheader("Academic Semester Configuration")
     col_start, col_end = st.columns(2)

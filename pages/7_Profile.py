@@ -2,6 +2,7 @@ import streamlit as st
 from backend.database import get_connection
 import datetime
 from frontend.styling import apply_global_css
+from ai.service import to_24h
 
 # Page setup
 # set_page_config configured in router
@@ -35,6 +36,11 @@ if not profile_row:
     st.stop()
 
 user_name, wake_t, sleep_t, active_t, bfast_t, lunch_t, dinner_t = profile_row
+wake_t = to_24h(wake_t)
+sleep_t = to_24h(sleep_t)
+bfast_t = to_24h(bfast_t)
+lunch_t = to_24h(lunch_t)
+dinner_t = to_24h(dinner_t)
 sem_start = datetime.date.fromisoformat(sem_row[0]) if sem_row else datetime.date.today()
 sem_end = datetime.date.fromisoformat(sem_row[1]) if sem_row else datetime.date.today() + datetime.timedelta(days=90)
 
@@ -50,11 +56,11 @@ with col_prof:
         
         col_w, col_s = st.columns(2)
         with col_w:
-            wake_options = ["05:00 AM", "06:00 AM", "07:00 AM", "08:00 AM", "09:00 AM", "10:00 AM"]
-            new_wake = st.selectbox("waking time range", wake_options, index=wake_options.index(wake_t) if wake_t in wake_options else 2)
+            wake_options = ["05:00", "06:00", "07:00", "08:00", "09:00", "10:00"]
+            new_wake = st.selectbox("Waking Time", wake_options, index=wake_options.index(wake_t) if wake_t in wake_options else 2)
         with col_s:
-            sleep_options = ["09:00 PM", "10:00 PM", "11:00 PM", "12:00 AM", "01:00 AM", "02:00 AM"]
-            new_sleep = st.selectbox("sleeping time range", sleep_options, index=sleep_options.index(sleep_t) if sleep_t in sleep_options else 2)
+            sleep_options = ["21:00", "22:00", "23:00", "00:00", "01:00", "02:00"]
+            new_sleep = st.selectbox("Sleeping Time", sleep_options, index=sleep_options.index(sleep_t) if sleep_t in sleep_options else 2)
             
         active_options = ["Morning Focus", "Afternoon Focus", "Evening Focus", "Night Owl Focus"]
         new_active = st.selectbox("Most active study time", active_options, index=active_options.index(active_t) if active_t in active_options else 2)
@@ -62,14 +68,14 @@ with col_prof:
         st.write("**Meal Timings**")
         col_bf, col_ln, col_dn = st.columns(3)
         with col_bf:
-            bf_options = ["07:30 AM", "08:00 AM", "08:30 AM", "09:00 AM", "09:30 AM"]
-            new_bf = st.selectbox("Breakfast Time", bf_options, index=bf_options.index(bfast_t) if bfast_t in bf_options else 1)
+            bf_options = ["07:00", "07:30", "08:00", "08:30", "09:00", "09:30"]
+            new_bf = st.selectbox("Breakfast Time", bf_options, index=bf_options.index(bfast_t) if bfast_t in bf_options else 2)
         with col_ln:
-            ln_options = ["12:30 PM", "01:00 PM", "01:30 PM", "02:00 PM", "02:30 PM"]
-            new_ln = st.selectbox("Lunch Time", ln_options, index=ln_options.index(lunch_t) if lunch_t in ln_options else 1)
+            ln_options = ["12:00", "12:30", "13:00", "13:30", "14:00", "14:30"]
+            new_ln = st.selectbox("Lunch Time", ln_options, index=ln_options.index(lunch_t) if lunch_t in ln_options else 2)
         with col_dn:
-            dn_options = ["07:30 PM", "08:00 PM", "08:30 PM", "09:00 PM", "09:30 PM"]
-            new_dn = st.selectbox("Dinner Time", dn_options, index=dn_options.index(dinner_t) if dinner_t in dn_options else 1)
+            dn_options = ["19:00", "19:30", "20:00", "20:30", "21:00", "21:30"]
+            new_dn = st.selectbox("Dinner Time", dn_options, index=dn_options.index(dinner_t) if dinner_t in dn_options else 2)
             
         st.write("**Academic Semester**")
         col_s_date, col_e_date = st.columns(2)

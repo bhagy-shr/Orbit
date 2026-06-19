@@ -471,14 +471,14 @@ if "mood" in st.session_state:
             """
             <p style='color: #94a3b8; font-size: 0.85rem; margin-top: -5px; line-height: 1.45;'>
                 Request changes or study blocks.<br>
-                💡 <b>Note: Always use the 24-hour format (HH:MM-HH:MM)</b> for adjustments (e.g. "Change DSA to 16:00-18:00" or "AI Club meeting from 09:00-11:00" or "ML study in parts: 13:00-14:00 and 16:00-17:00").
+                💡 <b>Note: Always use the 24-hour format (HH:MM-HH:MM)</b> for adjustments (e.g. "Change Chemistry to 16:00-18:00" or "AI Club meeting from 09:00-11:00" or "ML study in parts: 13:00-14:00 and 16:00-17:00").
             </p>
             """,
             unsafe_allow_html=True
         )
         
         with st.form("additional_tasks_adjustment_form", clear_on_submit=True):
-            adjust_input = st.text_area("Adjustment Requests", placeholder="e.g. Add 1 hour break after lunch, reschedule DSA study...")
+            adjust_input = st.text_area("Adjustment Requests", placeholder="e.g. Add 1 hour break after lunch, reschedule Chemistry study...")
             submitted_adj = st.form_submit_button("Update Schedule")
             if submitted_adj:
                 if adjust_input:
