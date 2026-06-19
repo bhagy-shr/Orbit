@@ -90,11 +90,32 @@ def generate_day_plan(mood, sleep, tasks, goals, timetable,
     insights = cursor.fetchall()
     conn.close()
 
+    def to_24h(time_str):
+        if not time_str:
+            return time_str
+        t_clean = time_str.strip().upper()
+        if "AM" in t_clean or "PM" in t_clean:
+            try:
+                dt = datetime.datetime.strptime(t_clean, "%I:%M %p")
+                return dt.strftime("%H:%M")
+            except ValueError:
+                try:
+                    dt = datetime.datetime.strptime(t_clean, "%H:%M %p")
+                    return dt.strftime("%H:%M")
+                except ValueError:
+                    pass
+        return t_clean
+
     if profile_row:
         user_name, wake_t, sleep_t, active_t, bfast_t, lunch_t, dinner_t = profile_row
+        wake_t = to_24h(wake_t)
+        sleep_t = to_24h(sleep_t)
+        bfast_t = to_24h(bfast_t)
+        lunch_t = to_24h(lunch_t)
+        dinner_t = to_24h(dinner_t)
     else:
         user_name, wake_t, sleep_t, active_t, bfast_t, lunch_t, dinner_t = (
-            "Student", "07:00 AM", "11:00 PM", "Evening", "08:00 AM", "01:00 PM", "08:00 PM"
+            "Student", "07:00", "23:00", "Evening", "08:00", "13:00", "20:00"
         )
 
     # ── DETECT MOOD PATTERNS & SLEEP DEBT ─────────────────
@@ -227,7 +248,7 @@ BEHAVIORAL REMINDERS (FROM CHAT BOT):
 {insights_text}
 
 CRITICAL SCHEDULING RULES:
-1. Schedule the day hour-by-hour, starting exactly at wake-up time ({wake_t}) and ending at bedtime ({sleep_t}). **24-HOUR FORMAT**: You MUST format all scheduled entries using the 24-hour method (HH:MM - HH:MM) in your generated plan. Never use 12-hour AM/PM formatting in the hourly slots (e.g. output `16:00 - 17:00` instead of `04:00 PM - 05:00 PM`).
+1. Schedule the day hour-by-hour, starting exactly at wake-up time ({wake_t}) and ending exactly at bedtime ({sleep_t}). **24-HOUR FORMAT**: You MUST format all scheduled entries using the 24-hour method (HH:MM - HH:MM) in your generated plan. Never use 12-hour AM/PM formatting in the hourly slots (e.g. output `16:00 - 17:00` instead of `04:00 PM - 05:00 PM`). **STRICT SLEEP WINDOW**: Never schedule any activities, tasks, classes, breaks, or study blocks after the bedtime ({sleep_t}) or before the wake-up time ({wake_t}). The timetable must start exactly at {wake_t} and end exactly at {sleep_t}.
 2. Always respect class timetables ({timetable_text}) — never schedule tasks or study sessions during class hours. CRITICAL: Do NOT split, break up, or modify the start and end times of scheduled classes or meetings (e.g. if a class/meeting is scheduled from 9:00 AM to 11:00 AM, you must list it exactly as "09:00 AM - 11:00 AM — Class: [Name]". Do NOT break it into chunks like "09:30 AM - 10:00 AM"). Preserve class and meeting timings exactly.
 3. Protect breakfast, lunch, and dinner times based on their meal schedule.
 4. **TASK SLOT PRIORITIZATION**: If a task specifies a "preferred slot" (e.g. `18:00-20:00` or split slots like `13:00-14:00 and 16:00-17:00`), you MUST schedule it in that exact slot. This is a top scheduling priority. Never place it in a different time slot. If the slot has multiple parts, schedule the task split into those specific blocks. Check your start/end time math carefully to ensure the duration is fully met.
@@ -244,6 +265,7 @@ CRITICAL SCHEDULING RULES:
 12. **SLEEP TARGET & DEBT ADJUSTMENT**:
     - If the student has logged a pattern of sleep deprivation (recent days of 4h, 6h, etc., resulting in a high Cumulative Sleep Debt) AND they have a relatively light task workload today, you MUST gently remind them in the 'NOTE' or 'MOTIVATION' section to sleep early, and schedule their bedtime 1-2 hours earlier in the generated timetable (e.g., schedule '09:00 PM — Wind down & Sleep early to recover from sleep debt').
     - If the student explicitly asks to adjust the timetable to maintain their 7 hours of sleep (e.g. in the Manual User Schedule Adjustment), you MUST adjust the wake-up time or bedtime in the generated schedule to guarantee at least 7 hours of sleep, even if you have to compress study sessions.
+13. **STRICT TASK INTEGRITY (NO HALLUCINATIONS)**: You MUST ONLY schedule tasks, classes, and goals that are explicitly listed in the prompt context. Do NOT invent, assume, or add any tasks (such as 'Study DSA midterm' or 'Read novel' or 'Chemistry test') that are not present in the student's task list, timetable, or adjustment requests. If a task is not in the data, do not schedule study blocks for it under any circumstance.
 """
 
     if struggling:
