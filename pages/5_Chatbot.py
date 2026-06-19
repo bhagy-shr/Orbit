@@ -151,7 +151,7 @@ Keep your responses conversational, empathetic, and direct. Do not mention this 
                     messages.append({"role": m["role"], "content": m["content"]})
                     
                 response = client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
+                    model="llama-3.1-8b-instant",
                     max_tokens=800,
                     messages=messages
                 )

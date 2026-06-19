@@ -45,7 +45,7 @@ def generate_motivation_quote(mood, sleep):
 
     try:
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="llama-3.1-8b-instant",
             max_tokens=150,
             messages=[
                 {"role": "user", "content": prompt}
@@ -318,7 +318,7 @@ MOTIVATION: [one short encouraging line]
 
     try:
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="llama-3.1-8b-instant",
             max_tokens=1000,
             messages=[
                 {"role": "user", "content": prompt}
