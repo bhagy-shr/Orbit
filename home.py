@@ -352,52 +352,63 @@ if "mood" in st.session_state:
             )
             st.markdown("<div style='height: 15px;'></div>", unsafe_allow_html=True)
             
-        # Generate plan if needed
-        if "plan" not in st.session_state or st.session_state.get("plan") is None:
-            with st.spinner("Orbit is generating your schedule..."):
-                conn = get_connection()
-                cursor = conn.cursor()
-                
-                # Fetch pending tasks
-                cursor.execute(
-                    "SELECT id, title, deadline, task_type, is_done, allocated_hours, pref_start_time, pref_end_time FROM tasks WHERE is_done = 0 ORDER BY deadline"
-                )
-                tasks = cursor.fetchall()
-                
-                # Fetch goals
-                cursor.execute("SELECT id, title, frequency, target FROM goals")
-                goals = cursor.fetchall()
-                
-                # Fetch classes for today
-                today_name = datetime.date.today().strftime("%A")
-                cursor.execute(
-                    "SELECT subject, day, start_time, end_time FROM timetable WHERE day = ?",
-                    (today_name,)
-                )
-                timetable = cursor.fetchall()
-                conn.close()
-                
-                # Get mood history
-                mood_history = get_mood_history(days=7)
-                
-                # Generate plan
-                plan = generate_day_plan(
-                    mood=st.session_state["mood"],
-                    sleep=st.session_state["sleep"],
-                    tasks=tasks,
-                    goals=goals,
-                    timetable=timetable,
-                    attendance_warnings=attendance_warnings,
-                    mood_history=mood_history,
-                    overwhelmed=st.session_state.get("overwhelmed", False),
-                    motivated=st.session_state.get("motivated", False)
-                )
-                
-                st.session_state["plan"] = plan
-                
-        # Render timeline checklist
-        if "plan" in st.session_state and st.session_state["plan"]:
-            render_ai_plan_timeline(st.session_state["plan"])
+        # Check if there are tasks to schedule
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM tasks WHERE is_done = 0")
+        has_tasks = cursor.fetchone()[0] > 0
+        conn.close()
+
+        if not has_tasks:
+            st.session_state["plan"] = None
+            st.info("📅 No timetable generated yet. Please add tasks below or in the Tasks & Goals manager to get started!")
+        else:
+            # Generate plan if needed
+            if "plan" not in st.session_state or st.session_state.get("plan") is None:
+                with st.spinner("Orbit is generating your schedule..."):
+                    conn = get_connection()
+                    cursor = conn.cursor()
+                    
+                    # Fetch pending tasks
+                    cursor.execute(
+                        "SELECT id, title, deadline, task_type, is_done, allocated_hours, pref_start_time, pref_end_time FROM tasks WHERE is_done = 0 ORDER BY deadline"
+                    )
+                    tasks = cursor.fetchall()
+                    
+                    # Fetch goals
+                    cursor.execute("SELECT id, title, frequency, target FROM goals")
+                    goals = cursor.fetchall()
+                    
+                    # Fetch classes for today
+                    today_name = datetime.date.today().strftime("%A")
+                    cursor.execute(
+                        "SELECT subject, day, start_time, end_time FROM timetable WHERE day = ?",
+                        (today_name,)
+                    )
+                    timetable = cursor.fetchall()
+                    conn.close()
+                    
+                    # Get mood history
+                    mood_history = get_mood_history(days=7)
+                    
+                    # Generate plan
+                    plan = generate_day_plan(
+                        mood=st.session_state["mood"],
+                        sleep=st.session_state["sleep"],
+                        tasks=tasks,
+                        goals=goals,
+                        timetable=timetable,
+                        attendance_warnings=attendance_warnings,
+                        mood_history=mood_history,
+                        overwhelmed=st.session_state.get("overwhelmed", False),
+                        motivated=st.session_state.get("motivated", False)
+                    )
+                    
+                    st.session_state["plan"] = plan
+                    
+            # Render timeline checklist
+            if "plan" in st.session_state and st.session_state["plan"]:
+                render_ai_plan_timeline(st.session_state["plan"])
             
         # Support messages based on mood logs
         mood_history = get_mood_history(days=7)
