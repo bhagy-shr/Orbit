@@ -4,11 +4,7 @@ import datetime
 from frontend.styling import apply_global_css
 
 # Page configuration
-st.set_page_config(
-    page_title="Personal Notes",
-    page_icon="○",
-    layout="wide"
-)
+# set_page_config configured in router
 
 # Apply global styling
 apply_global_css()

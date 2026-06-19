@@ -26,9 +26,25 @@ def initialize_db():
             title TEXT NOT NULL,
             deadline TEXT,
             task_type TEXT,
-            is_done INTEGER DEFAULT 0
+            is_done INTEGER DEFAULT 0,
+            allocated_hours REAL,
+            pref_start_time TEXT,
+            pref_end_time TEXT,
+            completed_date TEXT
         )
     """)
+
+    # Upgrade tasks table if it already exists without new columns
+    for col_name, col_type in [
+        ("allocated_hours", "REAL"),
+        ("pref_start_time", "TEXT"),
+        ("pref_end_time", "TEXT"),
+        ("completed_date", "TEXT")
+    ]:
+        try:
+            cursor.execute(f"ALTER TABLE tasks ADD COLUMN {col_name} {col_type}")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
     # Goals - recurring daily/weekly habits
     cursor.execute("""
@@ -109,5 +125,70 @@ def initialize_db():
         )
     """)
 
+    # User profile - stores onboarding & schedule preference info
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_profile (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            wake_time TEXT,
+            sleep_time TEXT,
+            active_time TEXT,
+            breakfast_time TEXT,
+            lunch_time TEXT,
+            dinner_time TEXT,
+            onboarded INTEGER DEFAULT 0
+        )
+    """)
+
+    # Attendance offsets - stores pre-recorded classes for mid-semester users
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS attendance_offsets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            subject TEXT UNIQUE NOT NULL,
+            past_attended INTEGER DEFAULT 0,
+            past_total INTEGER DEFAULT 0
+        )
+    """)
+
+    # Chat insights - logs user habits/distractions from the chatbot page
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS chat_insights (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            insight TEXT NOT NULL,
+            category TEXT,
+            duration_hours REAL DEFAULT 0.0
+        )
+    """)
+
     conn.commit()
     conn.close()
+
+def escalate_task_priorities():
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, deadline, task_type FROM tasks WHERE is_done = 0")
+    rows = cursor.fetchall()
+    
+    import datetime
+    today = datetime.date.today()
+    for row_id, deadline_str, task_type in rows:
+        if deadline_str:
+            try:
+                deadline_dt = datetime.date.fromisoformat(deadline_str)
+                days_left = (deadline_dt - today).days
+                if days_left <= 2:
+                    if "High" not in task_type:
+                        new_type = "🔴 High Priority"
+                        cursor.execute("UPDATE tasks SET task_type = ? WHERE id = ?", (new_type, row_id))
+            except ValueError:
+                pass
+    conn.commit()
+    conn.close()
+
+# Initialize the database immediately when imported by any module
+initialize_db()
+try:
+    escalate_task_priorities()
+except Exception:
+    pass

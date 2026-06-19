@@ -2,6 +2,7 @@ import os
 import re
 import datetime
 from groq import Groq
+from backend.database import get_connection
 
 # Try to load Groq API key from KEY.MD if not in environment
 if not os.environ.get("GROQ_API_KEY"):
@@ -20,10 +21,46 @@ except Exception:
     client = None
 
 
+def generate_motivation_quote(mood, sleep):
+    """Generates a highly personalized motivation quote based on mood and energy (sleep)"""
+    global client
+    if client is None:
+        try:
+            client = Groq()
+        except Exception:
+            return "Believe in yourself and take it one step at a time! 💫"
+
+    mood_labels = {
+        1: "very low", 2: "low",
+        3: "okay", 4: "good", 5: "excellent"
+    }
+    mood_str = mood_labels.get(mood, "neutral")
+
+    prompt = f"""
+    The student is feeling {mood_str} (mood score: {mood}/5) and got {sleep} hours of sleep last night.
+    Generate a single, short, highly inspiring and supportive motivational quote (1-2 sentences max) to help them kickstart their day.
+    Be warm, friendly, and supportive. Avoid generic clichés, toxic positivity, or cheesy slogans. Focus on gentle encouragement.
+    Do not include any quotation marks, introduction, or headers in your response. Just output the raw quote text.
+    """
+
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            max_tokens=150,
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
+        )
+        return response.choices[0].message.content.strip().replace('"', '')
+    except Exception:
+        return "You are doing great! Let's take today one step at a time. ✨"
+
+
 def generate_day_plan(mood, sleep, tasks, goals, timetable, 
-                      attendance_warnings, mood_history=None, overwhelmed=False):
+                      attendance_warnings, mood_history=None, overwhelmed=False, motivated=False):
     
     today = datetime.date.today().strftime("%A, %B %d %Y")
+    today_date_str = datetime.date.today().strftime("%Y-%m-%d")
     
     mood_labels = {
         1: "very low — exhausted and struggling",
@@ -33,34 +70,85 @@ def generate_day_plan(mood, sleep, tasks, goals, timetable,
         5: "great — high energy and motivated"
     }
 
-    # ── DETECT MOOD PATTERNS ─────────────────────────────
+    # ── FETCH USER PROFILE & SETTINGS ────────────────────
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT name, wake_time, sleep_time, active_time, breakfast_time, lunch_time, dinner_time 
+        FROM user_profile LIMIT 1
+    """)
+    profile_row = cursor.fetchone()
+    
+    # ── FETCH CHATBOT INSIGHTS (HABITS/DISTRACTIONS) ──────
+    cursor.execute("""
+        SELECT insight, category, duration_hours 
+        FROM chat_insights 
+        WHERE date = ? OR date = ?
+        ORDER BY id DESC LIMIT 5
+    """, (today_date_str, 
+          (datetime.date.today() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")))
+    insights = cursor.fetchall()
+    conn.close()
+
+    if profile_row:
+        user_name, wake_t, sleep_t, active_t, bfast_t, lunch_t, dinner_t = profile_row
+    else:
+        user_name, wake_t, sleep_t, active_t, bfast_t, lunch_t, dinner_t = (
+            "Student", "07:00 AM", "11:00 PM", "Evening", "08:00 AM", "01:00 PM", "08:00 PM"
+        )
+
+    # ── DETECT MOOD PATTERNS & SLEEP DEBT ─────────────────
     low_mood_days = 0
     poor_sleep_days = 0
+    sleep_debt = 0.0
+    recent_sleep_log = []
     
     if mood_history:
-        for log in mood_history:
+        for idx, log in enumerate(mood_history):
             log_mood, log_sleep = log
+            recent_sleep_log.append(f"Day -{idx+1}: {log_sleep} hours")
             if log_mood <= 2:
                 low_mood_days += 1
             if log_sleep < 6:
                 poor_sleep_days += 1
-
+            if log_sleep < 7.0:
+                sleep_debt += (7.0 - log_sleep)
+                
+    recent_sleep_text = ", ".join(recent_sleep_log) if recent_sleep_log else "No recent sleep logged."
     struggling = low_mood_days >= 5
 
-    # ── FORMAT CONTEXT ───────────────────────────────────
+    # ── FORMAT CONTEXT FOR PROMPT ────────────────────────
     tasks_text = ""
     if tasks:
         for task in tasks:
-            title, deadline, task_type, is_done = task
+            # Handle task list elements safely depending on tuple length
+            if len(task) >= 8:
+                task_id, title, deadline, task_type, is_done, allocated_hours, pref_start, pref_end = task[:8]
+            elif len(task) == 5:
+                task_id, title, deadline, task_type, is_done = task
+                allocated_hours, pref_start, pref_end = None, None, None
+            else:
+                title, deadline, task_type, is_done = task[1], task[2], task[3], task[4]
+                allocated_hours, pref_start, pref_end = None, None, None
+
             if not is_done:
-                tasks_text += f"- {title} ({task_type}) due {deadline}\n"
+                details = []
+                if allocated_hours:
+                    details.append(f"duration: {allocated_hours} hours")
+                if pref_start and pref_end:
+                    details.append(f"preferred slot: {pref_start} to {pref_end}")
+                elif pref_start:
+                    details.append(f"preferred slot: {pref_start}")
+                
+                details_str = f" ({', '.join(details)} )" if details else ""
+                tasks_text += f"- {title} [{task_type}]{details_str} due {deadline}\n"
     else:
         tasks_text = "No pending tasks"
 
     goals_text = ""
     if goals:
         for goal in goals:
-            title, frequency, target = goal
+            title, frequency, target = goal[1], goal[2], goal[3]
             goals_text += f"- {title} ({frequency}, target: {target})\n"
     else:
         goals_text = "No recurring goals set"
@@ -68,7 +156,7 @@ def generate_day_plan(mood, sleep, tasks, goals, timetable,
     timetable_text = ""
     if timetable:
         for subject, day, start_time, end_time in timetable:
-            timetable_text += f"- {subject}: {start_time} to {end_time}\n"
+            timetable_text += f"- {subject} Class: {start_time} to {end_time}\n"
     else:
         timetable_text = "No classes today"
 
@@ -79,7 +167,17 @@ def generate_day_plan(mood, sleep, tasks, goals, timetable,
     else:
         warnings_text = "All subjects in good standing"
 
-    # ── MOOD HISTORY SUMMARY ─────────────────────────────
+    insights_text = ""
+    if insights:
+        for insight_str, category, duration in insights:
+            if category == "schedule_adjustment":
+                insights_text += f"- Manual User Schedule Adjustment: {insight_str}\n"
+            else:
+                dur_str = f" ({duration}h)" if duration else ""
+                insights_text += f"- Focus Warning: {insight_str}{dur_str} [Category: {category}]\n"
+    else:
+        insights_text = "No recent behavioral alerts"
+
     mood_pattern_text = ""
     if struggling:
         mood_pattern_text = f"""
@@ -95,37 +193,63 @@ Low mood days in last 7 days: {low_mood_days}
 Poor sleep days in last 7 days: {poor_sleep_days}
 """
 
-    # ── BUILD PROMPT ─────────────────────────────────────
-    if struggling:
-        # Gentle, care-first prompt
-        prompt = f"""
-You are Orbit, a warm and caring personal companion for a college student.
+    # ── BUILD SYSTEM INSTRUCTIONS & SCHEDULING RULES ─────
+    instructions = f"""
+You are Orbit, a personal AI academic companion for a college student named {user_name}.
 Today is {today}.
+
+STUDENT PREFERENCES & WANTS:
+- Waking Time: {wake_t}
+- Bedtime: {sleep_t}
+- Most Active Study Window: {active_t}
+- Meal Times: Breakfast at {bfast_t}, Lunch at {lunch_t}, Dinner at {dinner_t}
 
 STUDENT STATUS:
 - Mood today: {mood}/5 — {mood_labels[mood]}
 - Sleep last night: {sleep} hours
+- Recent Sleep History (last 7 days): {recent_sleep_text}
+- Cumulative Sleep Debt: {sleep_debt:.1f} hours
 {mood_pattern_text}
 
-TODAY'S CLASSES:
+TODAY'S TIMETABLE CLASSES:
 {timetable_text}
 
-PENDING TASKS:
+PENDING TASKS & DEDICATED SLOTS:
 {tasks_text}
 
-ATTENDANCE WARNINGS:
+RECURRING GOALS:
+{goals_text}
+
+ATTENDANCE CRITICALITY:
 {warnings_text}
 
-This student has been struggling for several days in a row.
-Your response should:
-- First acknowledge how hard this week has been — warmly, like a friend
-- Create a very light, gentle plan with maximum 2-3 priorities only
-- Include proper breaks and self-care time
-- Explicitly tell them it is okay to not do everything today
-- Gently suggest talking to someone they trust — a friend, family member, 
-  or their college counselor — not as an alarm, but as a caring nudge
-- Never make them feel guilty about low productivity
-- Remind them that one hard week does not define their entire semester
+BEHAVIORAL REMINDERS (FROM CHAT BOT):
+{insights_text}
+
+CRITICAL SCHEDULING RULES:
+1. Schedule the day hour-by-hour, starting exactly at wake-up time ({wake_t}) and ending at bedtime ({sleep_t}). **24-HOUR FORMAT**: You MUST format all scheduled entries using the 24-hour method (HH:MM - HH:MM) in your generated plan. Never use 12-hour AM/PM formatting in the hourly slots (e.g. output `16:00 - 17:00` instead of `04:00 PM - 05:00 PM`).
+2. Always respect class timetables ({timetable_text}) — never schedule tasks or study sessions during class hours. CRITICAL: Do NOT split, break up, or modify the start and end times of scheduled classes or meetings (e.g. if a class/meeting is scheduled from 9:00 AM to 11:00 AM, you must list it exactly as "09:00 AM - 11:00 AM — Class: [Name]". Do NOT break it into chunks like "09:30 AM - 10:00 AM"). Preserve class and meeting timings exactly.
+3. Protect breakfast, lunch, and dinner times based on their meal schedule.
+4. **TASK SLOT PRIORITIZATION**: If a task specifies a "preferred slot" (e.g. `18:00-20:00` or split slots like `13:00-14:00 and 16:00-17:00`), you MUST schedule it in that exact slot. This is a top scheduling priority. Never place it in a different time slot. If the slot has multiple parts, schedule the task split into those specific blocks. Check your start/end time math carefully to ensure the duration is fully met.
+   - If there is a scheduling conflict:
+     * Resolve by Task Priority: High Priority > Medium Priority > Low Priority.
+     * If both conflicting tasks are High Priority, schedule them on a first-come, first-served (FCFS) basis (schedule the one listed first in the prompt list first, and push the second one to the next available free study slot).
+5. **CRITICAL DEADLINE SAFEGUARD**: If a task's deadline is TODAY ({today_date_str}), you MUST schedule it on today's plan under all circumstances (even if the student is overwhelmed or wants a light day). Never omit a task due today.
+6. **DAILY TASK SCALING (NO DROPPING)**: If a task represents a daily quantity target (e.g. '5 CP questions', '10 DSA sums') and the student is overwhelmed (overwhelmed = True), do NOT drop it completely. Instead, scale the quantity down (e.g., reduce it to '2 CP questions' or '1 CP question') to help them keep their daily habit alive.
+7. If the student has behavioral reminders (e.g. scrolling reels warnings), explicitly insert custom warning tasks/reminders in their schedule (e.g. "08:00 PM — NO Instagram reels! Work on study instead").
+8. If attendance is below 75% for a subject class today, mark it clearly in their class schedule event as a "Critical - Cannot Bunk!" reminder.
+9. **VISUAL PRIORITY CIRCLES**: You MUST depict every task in the day plan schedule with its priority circle: 🔴 for High Priority, 🔵 for Medium Priority, and 🟡 for Low Priority (e.g., '10:00 AM — 🔴 Study DSA midterm' or '03:00 PM — 🟡 Read novel'). Make sure the appropriate circle prefix is placed before the task name.
+10. **MANUAL ADJUSTMENTS OVERRIDE**: If a manual user adjustment request is provided (e.g., '- Manual User Schedule Adjustment: User adjustment request: my Ai club meeting from 09:00-11:00' or 'User adjustment request: add Chemistry study block at 16:00-18:00' or in parts like 'User adjustment request: ML study 13:00-14:00 and 16:00-17:00'), you MUST prioritize and implement this change exactly as requested in today's day plan schedule in 24-hour format. This is a direct command from the user: you must override other scheduling constraints (including class timetables or overwhelmed/motivated modes) to schedule this specific block at the exact time and duration specified. Shift other blocks (study times, breaks, meals) around it as necessary to accommodate it.
+11. **ALLOCATED HOURS REQUIREMENT**: If a task has allocated hours (e.g. 2 hours), you MUST schedule the exact number of hours entered for that task. The scheduled block start and end times MUST span the exact duration (e.g. a 2-hour task must be scheduled as a single 2-hour block like '18:00 - 20:00', or split into parts like '13:00-14:00 and 16:00-17:00' that sum to exactly 2 hours). Check your start/end time math carefully to ensure the duration is fully met.
+12. **SLEEP TARGET & DEBT ADJUSTMENT**:
+    - If the student has logged a pattern of sleep deprivation (recent days of 4h, 6h, etc., resulting in a high Cumulative Sleep Debt) AND they have a relatively light task workload today, you MUST gently remind them in the 'NOTE' or 'MOTIVATION' section to sleep early, and schedule their bedtime 1-2 hours earlier in the generated timetable (e.g., schedule '09:00 PM — Wind down & Sleep early to recover from sleep debt').
+    - If the student explicitly asks to adjust the timetable to maintain their 7 hours of sleep (e.g. in the Manual User Schedule Adjustment), you MUST adjust the wake-up time or bedtime in the generated schedule to guarantee at least 7 hours of sleep, even if you have to compress study sessions.
+"""
+
+    if struggling:
+        prompt = f"""
+{instructions}
+Create a very light, gentle schedule with maximum 2-3 priorities. Focus heavily on self-care, simple breaks, and warm, friendly support. Encourage them gently to talk to someone they trust if this low mood pattern persists.
 
 Format:
 CHECKING IN: [warm acknowledgment of how they've been feeling this week]
@@ -136,38 +260,14 @@ A GENTLE PLAN FOR TODAY:
 ...
 
 REMEMBER: [one gentle reminder that it's okay to not be okay]
-
 SUPPORT: [warm suggestion to reach out to someone they trust]
-
 MOTIVATION: [one short, gentle, encouraging line — nothing toxic positivity]
 """
-
     elif overwhelmed:
-        # Overwhelmed — lighten the plan
         prompt = f"""
-You are Orbit, a warm personal companion for a college student.
-Today is {today}.
-
-STUDENT STATUS:
-- Mood today: {mood}/5 — {mood_labels[mood]}
-- Sleep last night: {sleep} hours
-
-TODAY'S CLASSES:
-{timetable_text}
-
-PENDING TASKS:
-{tasks_text}
-
-ATTENDANCE WARNINGS:
-{warnings_text}
-
-The student just told you the original plan felt like too much.
-Your response should:
-- Acknowledge that feeling overwhelmed is completely valid
-- Pick ONLY the single most important task for today
-- Build a much lighter plan with longer breaks
-- Tell them explicitly what they have permission to skip today
-- Be warm and reassuring throughout
+{instructions}
+The student just indicated they feel overwhelmed. Simplify the schedule. Pick only the single most important task for today (ensuring it's the highest priority with the tightest deadline) and make the rest of the schedule extremely light, with long breaks. Keep high priority tasks due today, and scale down daily quantitative targets (e.g. "5 CP questions" becomes "2 CP questions") instead of removing them.
+**CRITICAL**: If the user has manually requested a schedule adjustment (like increasing study time for a specific subject or task), you MUST honor this request and schedule the increased study block for that subject/task today, overriding the simplified/light guidelines for that specific item.
 
 Format:
 I HEAR YOU: [warm acknowledgment that the plan felt too much]
@@ -177,45 +277,13 @@ YOUR LIGHTER PLAN:
 [time] — [activity]
 ...
 
-SKIP TODAY: [what they have permission to let go of today]
-
+SKIP TODAY: [what they have permission to let go of today to rest]
 MOTIVATION: [one gentle encouraging line]
 """
-
-    else:
-        # Normal day plan prompt
+    elif motivated:
         prompt = f"""
-You are Orbit, a personal AI companion for a college student.
-Today is {today}.
-
-STUDENT STATUS:
-- Mood: {mood}/5 — {mood_labels[mood]}
-- Sleep last night: {sleep} hours
-{mood_pattern_text}
-
-TODAY'S CLASSES:
-{timetable_text}
-
-PENDING TASKS AND DEADLINES:
-{tasks_text}
-
-RECURRING GOALS:
-{goals_text}
-
-ATTENDANCE WARNINGS:
-{warnings_text}
-
-Generate a personalized hour-by-hour day plan for this student.
-
-Rules:
-- If mood is 1 or 2, keep the plan light and include breaks
-- If sleep is less than 6 hours, suggest a short nap and lighter tasks first
-- Always protect class time slots — never schedule tasks during classes
-- Prioritize tasks that are overdue or due soon
-- Fit recurring goals into free slots naturally
-- If attendance is below 75% remind student not to miss that class
-- End with one short motivational line
-- Be warm and friendly — like a supportive friend
+{instructions}
+The student is highly motivated today! Generate a high-intensity study schedule. Squeeze in more tasks, reduce leisure/break times (make breaks shorter, e.g., 10 mins), group focus sessions together, and maximize their active study window ({active_t}). Call these study blocks 'DEEP FOCUS WORKTIME' in the timeline.
 
 Format:
 PLAN FOR TODAY:
@@ -224,7 +292,20 @@ PLAN FOR TODAY:
 ...
 
 NOTE: [one line explaining why you planned it this way]
+MOTIVATION: [one short encouraging line]
+"""
+    else:
+        prompt = f"""
+{instructions}
+Generate a structured, balanced daily plan for today. Maximize focus during their active study window ({active_t}). 
 
+Format:
+PLAN FOR TODAY:
+[time] — [activity]
+[time] — [activity]
+...
+
+NOTE: [one line explaining why you planned it this way]
 MOTIVATION: [one short encouraging line]
 """
 
@@ -235,15 +316,17 @@ MOTIVATION: [one short encouraging line]
         except Exception:
             return "Please configure your GROQ_API_KEY environment variable or verify the key inside KEY.MD to generate your day plan."
 
-    response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        max_tokens=1000,
-        messages=[
-            {"role": "user", "content": prompt}
-        ]
-    )
-
-    return response.choices[0].message.content
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            max_tokens=1000,
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"Error contacting Groq API: {str(e)}"
 
 
 def get_mood_history(days=7):

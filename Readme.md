@@ -46,9 +46,8 @@ how they're actually feeling, not how they planned to feel.
 - [x] Mood pattern detection — lighter plan + support nudge after 5 low days
 - [x] Overwhelmed button — regenerates a lighter, kinder plan on demand
 - [x] Bunk calculator — smart attendance math using timetable + semester dates
-- [ ] Well-being page — cycle-aware scheduling toggle
-- [ ] Weekly summary — productivity trends and pattern insights
-- [ ] Streamlit Cloud deployment
+- [x] Weekly summary — productivity trends and pattern insights
+- [x] Streamlit Cloud deployment
 
 ---
 
@@ -60,7 +59,7 @@ how they're actually feeling, not how they planned to feel.
 | Backend | Python |
 | Database | SQLite (orbit.db) |
 | AI Model | Groq API — Llama 3.3 70B |
-| Hosting | Streamlit Community Cloud (planned) |
+| Hosting | Streamlit Community Cloud |
 
 ---
 
@@ -68,35 +67,46 @@ how they're actually feeling, not how they planned to feel.
 
 ```
 Orbit/
-├── app.py                  # Home page — check-in + AI day plan
-├──backend/database.py      # SQLite setup, connection, all 9 tables
+├──app.py
+├── home.py                 # Home page — check-in + AI day plan
+├──backend
+│     └── database.py       # SQLite setup, connection, all 9 tables
+├──frontend
+│     └──styling.py         # Styling in css
 ├── key.md                  # Groq API key (never pushed to GitHub)
+├── .onboarding             #first-time user
 ├── .gitignore              # Excludes key.md, orbit.db, venv, pycache
 ├── ai/
-│   └── service.py               # Groq API call, prompt logic, mood pattern detection
+│   └── service.py          # Groq API call, prompt logic, mood pattern detection
 └── pages/
-    ├── 1_Goals.py      # Timetable + semester dates + holidays
-    ├── 2_Notes.py          # Tasks + deadlines + priority pie chart
-    ├── 3_Rewards.py     # Attendance tracker + bunk calculator
-    ├── 4_Tasks.py          # Recurring goals + streak tracker
-    └── 5_Timetable.py        # Unlockable rewards based on streaks
+    ├── 1_Goals.py          
+    ├── 2_Notes.py         
+    ├── 3_Rewards.py        
+    ├── 4_Tasks.py          
+    └── 5_Timetable.py  
+    └── 6_Analysis.py 
+    └── 7_Profile.py 
+    └── 8_Logout.py       
 ```
 
 ---
 
 ## 🎯 Features
 
-### Must Have (MVP) ✅
+### Have ✅
 - Daily mood + sleep check-in powering an AI-generated day plan
-- Task and deadline logger with priority levels and pie chart
+- Task and deadline logger with priority levels
 - Attendance tracker with 75% rule calculator and early warnings
 - Recurring personal goals manager (e.g. 10 DSA questions daily)
 - Bunk calculator — tells you exactly how many classes you can safely miss
-
-### Should Have
-- End-of-day feedback loop ("Did today's plan work?")
 - Weekly pattern summary and productivity trends
 - Club and extracurricular time blocking
+- Mnaula adjustmensts of timetable
+- AIchatbot assistance for better scheduling or comfort
+- logput and profile pages
+- managing data(deleting history)
+- Seperate page for you to add manual tasks
+- option to tighten or relax your plan
 
 ### Nice to Have
 - Cycle-aware scheduling (optional well-being toggle)
