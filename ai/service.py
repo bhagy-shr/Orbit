@@ -21,6 +21,23 @@ except Exception:
     client = None
 
 
+def to_24h(time_str):
+    if not time_str:
+        return time_str
+    t_clean = time_str.strip().upper()
+    if "AM" in t_clean or "PM" in t_clean:
+        try:
+            dt = datetime.datetime.strptime(t_clean, "%I:%M %p")
+            return dt.strftime("%H:%M")
+        except ValueError:
+            try:
+                dt = datetime.datetime.strptime(t_clean, "%H:%M %p")
+                return dt.strftime("%H:%M")
+            except ValueError:
+                pass
+    return t_clean
+
+
 def generate_motivation_quote(mood, sleep):
     """Generates a highly personalized motivation quote based on mood and energy (sleep)"""
     global client
@@ -89,22 +106,6 @@ def generate_day_plan(mood, sleep, tasks, goals, timetable,
           (get_local_today() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")))
     insights = cursor.fetchall()
     conn.close()
-
-    def to_24h(time_str):
-        if not time_str:
-            return time_str
-        t_clean = time_str.strip().upper()
-        if "AM" in t_clean or "PM" in t_clean:
-            try:
-                dt = datetime.datetime.strptime(t_clean, "%I:%M %p")
-                return dt.strftime("%H:%M")
-            except ValueError:
-                try:
-                    dt = datetime.datetime.strptime(t_clean, "%H:%M %p")
-                    return dt.strftime("%H:%M")
-                except ValueError:
-                    pass
-        return t_clean
 
     if profile_row:
         user_name, wake_t, sleep_t, active_t, bfast_t, lunch_t, dinner_t = profile_row
