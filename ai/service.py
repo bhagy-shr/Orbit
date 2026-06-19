@@ -252,10 +252,14 @@ CRITICAL SCHEDULING RULES:
 1. **STRICT WAKE-UP & BEDTIME BOUNDARIES**: The generated hourly schedule MUST start exactly at the wake-up time ({wake_t}) and end exactly at the bedtime ({sleep_t}). Under NO circumstances should any slot, activity, class, or task be scheduled before {wake_t} or after {sleep_t} (for example, if wake-up is 05:00 and bedtime is 21:00, there must be absolutely no slots earlier than 05:00 or later than 21:00 in your output plan). The very first item must be at {wake_t} and the very last item must be at {sleep_t}. **24-HOUR FORMAT**: You MUST format all scheduled entries using the 24-hour method (HH:MM - HH:MM) in your generated plan. Never use 12-hour AM/PM formatting in the hourly slots (e.g. output `16:00 - 17:00` instead of `04:00 PM - 05:00 PM`).
 2. Always respect class timetables ({timetable_text}) — never schedule tasks or study sessions during class hours. CRITICAL: Do NOT split, break up, or modify the start and end times of scheduled classes or meetings (e.g. if a class/meeting is scheduled from 09:00 to 11:00, you must list it exactly as "09:00 - 11:00 — Class: [Name]". Do NOT break it into chunks like "09:30 - 10:00"). Preserve class and meeting timings exactly.
 3. Protect breakfast, lunch, and dinner times based on their meal schedule.
-4. **TASK SLOT PRIORITIZATION**: If a task specifies a "preferred slot" (e.g. `18:00-20:00` or split slots like `13:00-14:00 and 16:00-17:00`), you MUST schedule it in that exact slot. This is a top scheduling priority. Never place it in a different time slot. If the slot has multiple parts, schedule the task split into those specific blocks. Check your start/end time math carefully to ensure the duration is fully met.
-   - If there is a scheduling conflict:
-     * Resolve by Task Priority: High Priority > Medium Priority > Low Priority.
-     * If both conflicting tasks are High Priority, schedule them on a first-come, first-served (FCFS) basis (schedule the one listed first in the prompt list first, and push the second one to the next available free study slot).
+4. **TASK SLOT PRIORITIZATION & CLASH RESOLUTION**:
+   - If a task specifies a "preferred slot" (e.g. `18:00-20:00` or split slots like `13:00-14:00 and 16:00-17:00`), you MUST schedule it in that exact slot. Keep it exactly as it is.
+   - If there is a scheduling conflict/clash, or if you are scheduling other tasks, prioritize placing them in the time window matching the user's **Most Active Study Window** (`{active_t}`):
+     * If active window is `"Morning Focus"`, prioritize scheduling tasks/study blocks before 12:00 (i.e. `05:00 - 12:00`).
+     * If active window is `"Afternoon Focus"`, prioritize scheduling tasks/study blocks between `12:00` and `17:00`.
+     * If active window is `"Evening Focus"`, prioritize scheduling tasks/study blocks between `17:00` and `21:00`.
+     * If active window is `"Night Owl Focus"`, prioritize scheduling tasks/study blocks between `21:00` and bedtime (`{sleep_t}`).
+     * If multiple tasks are scheduled in the preferred window, list them sequentially.
 5. **CRITICAL DEADLINE SAFEGUARD**: If a task's deadline is TODAY ({today_date_str}), you MUST schedule it on today's plan under all circumstances (even if the student is overwhelmed or wants a light day). Never omit a task due today.
 6. **DAILY TASK SCALING (NO DROPPING)**: If a task represents a daily quantity target (e.g. '5 practice questions', '10 exercise problems') and the student is overwhelmed (overwhelmed = True), do NOT drop it completely. Instead, scale the quantity down (e.g., reduce it to '2 practice questions' or '1 practice question') to help them keep their daily habit alive.
 7. If the student has behavioral reminders (e.g. scrolling reels warnings), explicitly insert custom warning tasks/reminders in their schedule (e.g. "20:00 — NO Instagram reels! Work on study instead").
@@ -266,7 +270,8 @@ CRITICAL SCHEDULING RULES:
 12. **SLEEP TARGET & DEBT ADJUSTMENT**:
     - If the student has logged a pattern of sleep deprivation (recent days of 4h, 6h, etc., resulting in a high Cumulative Sleep Debt) AND they have a relatively light task workload today, you MUST gently remind them in the 'NOTE' or 'MOTIVATION' section to sleep early, and schedule their bedtime 1-2 hours earlier in the generated timetable (e.g., schedule '21:00 — Wind down & Sleep early to recover from sleep debt' if normal bedtime is 22:00 or 23:00).
     - If the student explicitly asks to adjust the timetable to maintain their 7 hours of sleep (e.g. in the Manual User Schedule Adjustment), you MUST adjust the wake-up time or bedtime in the generated schedule to guarantee at least 7 hours of sleep, even if you have to compress study sessions.
-13. **STRICT TASK INTEGRITY (ZERO HALLUCINATIONS)**: You MUST ONLY schedule tasks, classes, and goals that are explicitly listed in the prompt context. Do NOT invent, assume, or add any tasks (such as 'Study DSA midterm', 'Read novel', 'Chemistry test', or any other task names or mock examples) that are not present in the student's task list, timetable, or adjustment requests. If a task is not in the data, do not schedule study blocks for it under any circumstance. If the user's task list is empty (reads 'No pending tasks'), do not schedule any task study blocks at all.
+13. **STRICT TASK INTEGRITY (ZERO HALLUCINATIONS)**: You MUST ONLY schedule tasks, classes, and goals that are explicitly listed in the prompt context. Do NOT invent, assume, or add any tasks, study sessions, exams, or activities (such as mock/example tasks or any name not in the user's active task list) that are not present in the student's task list, timetable, or adjustment requests. If a task is not in the data, do not schedule study blocks for it under any circumstance.
+14. **COMPROMISE NOTE FOR HIGH PRIORITY DAYS**: If there are any **🔴 High Priority** tasks in the pending tasks list, you MUST include a note in the **NOTE:** (or **REMEMBER:** if in struggling mode) section of your plan advising the user: *"You have high-priority tasks today. If you are struggling with time, please adjust your timetable manually (using the adjustment box) to decide which tasks you would like to compromise time on."*
 """
 
     if struggling:
@@ -282,14 +287,14 @@ A GENTLE PLAN FOR TODAY:
 [time] — [activity]
 ...
 
-REMEMBER: [one gentle reminder that it's okay to not be okay]
+REMEMBER: [one gentle reminder that it's okay to not be okay, including the compromise note if they have high priority tasks today]
 SUPPORT: [warm suggestion to reach out to someone they trust]
 MOTIVATION: [one short, gentle, encouraging line — nothing toxic positivity]
 """
     elif overwhelmed:
         prompt = f"""
 {instructions}
-The student just indicated they feel overwhelmed. Simplify the schedule. Pick only the single most important task for today (ensuring it's the highest priority with the tightest deadline) and make the rest of the schedule extremely light, with long breaks. Keep high priority tasks due today, and scale down daily quantitative targets (e.g. "5 CP questions" becomes "2 CP questions") instead of removing them.
+The student just indicated they feel overwhelmed. Simplify the schedule. **You MUST REMOVE/DROP all Low Priority (🟡) tasks from today's schedule entirely.** Only schedule High or Medium priority tasks, make the rest of the day extremely light with long breaks, and scale down daily quantitative targets.
 **CRITICAL**: If the user has manually requested a schedule adjustment (like increasing study time for a specific subject or task), you MUST honor this request and schedule the increased study block for that subject/task today, overriding the simplified/light guidelines for that specific item.
 
 Format:
@@ -301,6 +306,7 @@ YOUR LIGHTER PLAN:
 ...
 
 SKIP TODAY: [what they have permission to let go of today to rest]
+NOTE: [your note to the user, including the compromise note if they have high priority tasks today]
 MOTIVATION: [one gentle encouraging line]
 """
     elif motivated:
@@ -314,7 +320,7 @@ PLAN FOR TODAY:
 [time] — [activity]
 ...
 
-NOTE: [one line explaining why you planned it this way]
+NOTE: [one line explaining why you planned it this way, including the compromise note if they have high priority tasks today]
 MOTIVATION: [one short encouraging line]
 """
     else:
@@ -328,7 +334,7 @@ PLAN FOR TODAY:
 [time] — [activity]
 ...
 
-NOTE: [one line explaining why you planned it this way]
+NOTE: [one line explaining why you planned it this way, including the compromise note if they have high priority tasks today]
 MOTIVATION: [one short encouraging line]
 """
 
