@@ -2,7 +2,7 @@ import os
 import re
 import datetime
 from groq import Groq
-from backend.database import get_connection
+from backend.database import get_connection, get_local_today
 
 # Try to load Groq API key from KEY.MD if not in environment
 if not os.environ.get("GROQ_API_KEY"):
@@ -59,8 +59,8 @@ def generate_motivation_quote(mood, sleep):
 def generate_day_plan(mood, sleep, tasks, goals, timetable, 
                       attendance_warnings, mood_history=None, overwhelmed=False, motivated=False):
     
-    today = datetime.date.today().strftime("%A, %B %d %Y")
-    today_date_str = datetime.date.today().strftime("%Y-%m-%d")
+    today = get_local_today().strftime("%A, %B %d %Y")
+    today_date_str = get_local_today().strftime("%Y-%m-%d")
     
     mood_labels = {
         1: "very low — exhausted and struggling",
@@ -86,7 +86,7 @@ def generate_day_plan(mood, sleep, tasks, goals, timetable,
         WHERE date = ? OR date = ?
         ORDER BY id DESC LIMIT 5
     """, (today_date_str, 
-          (datetime.date.today() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")))
+          (get_local_today() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")))
     insights = cursor.fetchall()
     conn.close()
 
@@ -353,13 +353,13 @@ MOTIVATION: [one short encouraging line]
 
 def get_mood_history(days=7):
     """Fetch last 7 days of mood and sleep logs"""
-    from backend.database import get_connection
+    from backend.database import get_connection, get_local_today
     import datetime
 
     conn = get_connection()
     cursor = conn.cursor()
 
-    week_ago = (datetime.date.today() - 
+    week_ago = (get_local_today() - 
                 datetime.timedelta(days=days)).strftime("%Y-%m-%d")
     
     cursor.execute("""

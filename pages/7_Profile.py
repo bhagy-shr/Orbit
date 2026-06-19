@@ -1,5 +1,5 @@
 import streamlit as st
-from backend.database import get_connection
+from backend.database import get_connection, get_local_today, TIMEZONE_OPTIONS
 import datetime
 from frontend.styling import apply_global_css
 from ai.service import to_24h
@@ -17,7 +17,7 @@ st.markdown("<p style='color: #94a3b8; font-size: 1.1rem; margin-top: -15px; mar
 conn = get_connection()
 cursor = conn.cursor()
 cursor.execute("""
-    SELECT name, wake_time, sleep_time, active_time, breakfast_time, lunch_time, dinner_time 
+    SELECT name, wake_time, sleep_time, active_time, breakfast_time, lunch_time, dinner_time, timezone_offset 
     FROM user_profile LIMIT 1
 """)
 profile_row = cursor.fetchone()
@@ -35,14 +35,16 @@ if not profile_row:
     st.warning("Profile not found! Please return to the Home page to complete onboarding.")
     st.stop()
 
-user_name, wake_t, sleep_t, active_t, bfast_t, lunch_t, dinner_t = profile_row
+user_name, wake_t, sleep_t, active_t, bfast_t, lunch_t, dinner_t, tz_offset = profile_row
+if tz_offset is None:
+    tz_offset = 5.5
 wake_t = to_24h(wake_t)
 sleep_t = to_24h(sleep_t)
 bfast_t = to_24h(bfast_t)
 lunch_t = to_24h(lunch_t)
 dinner_t = to_24h(dinner_t)
-sem_start = datetime.date.fromisoformat(sem_row[0]) if sem_row else datetime.date.today()
-sem_end = datetime.date.fromisoformat(sem_row[1]) if sem_row else datetime.date.today() + datetime.timedelta(days=90)
+sem_start = datetime.date.fromisoformat(sem_row[0]) if sem_row else get_local_today()
+sem_end = datetime.date.fromisoformat(sem_row[1]) if sem_row else get_local_today() + datetime.timedelta(days=90)
 
 # Layout: Profile edit in Col 1, Attendance offsets in Col 2
 col_prof, col_offset = st.columns([1, 1])
@@ -62,8 +64,20 @@ with col_prof:
             sleep_options = ["21:00", "22:00", "23:00", "00:00", "01:00", "02:00"]
             new_sleep = st.selectbox("Sleeping Time", sleep_options, index=sleep_options.index(sleep_t) if sleep_t in sleep_options else 2)
             
-        active_options = ["Morning Focus", "Afternoon Focus", "Evening Focus", "Night Owl Focus"]
-        new_active = st.selectbox("Most active study time", active_options, index=active_options.index(active_t) if active_t in active_options else 2)
+        col_act, col_tz = st.columns(2)
+        with col_act:
+            active_options = ["Morning Focus", "Afternoon Focus", "Evening Focus", "Night Owl Focus"]
+            new_active = st.selectbox("Most active study time", active_options, index=active_options.index(active_t) if active_t in active_options else 2)
+        with col_tz:
+            # Find default timezone index
+            tz_options_list = list(TIMEZONE_OPTIONS.keys())
+            default_tz_idx = 0
+            for idx, val in enumerate(TIMEZONE_OPTIONS.values()):
+                if val == tz_offset:
+                    default_tz_idx = idx
+                    break
+            new_tz_label = st.selectbox("Timezone Offset", tz_options_list, index=default_tz_idx)
+            new_tz_offset = TIMEZONE_OPTIONS[new_tz_label]
         
         st.write("**Meal Timings**")
         col_bf, col_ln, col_dn = st.columns(3)
@@ -95,9 +109,9 @@ with col_prof:
                 cursor = conn.cursor()
                 cursor.execute("""
                     UPDATE user_profile 
-                    SET name = ?, wake_time = ?, sleep_time = ?, active_time = ?, breakfast_time = ?, lunch_time = ?, dinner_time = ?
+                    SET name = ?, wake_time = ?, sleep_time = ?, active_time = ?, breakfast_time = ?, lunch_time = ?, dinner_time = ?, timezone_offset = ?
                     WHERE id = 1
-                """, (new_name.strip(), new_wake, new_sleep, new_active, new_bf, new_ln, new_dn))
+                """, (new_name.strip(), new_wake, new_sleep, new_active, new_bf, new_ln, new_dn, new_tz_offset))
                 
                 cursor.execute("DELETE FROM semester")
                 cursor.execute("INSERT INTO semester (start_date, end_date) VALUES (?, ?)", (str(new_sem_start), str(new_sem_end)))

@@ -1,5 +1,5 @@
 import streamlit as st
-from backend.database import get_connection
+from backend.database import get_connection, get_local_today
 from groq import Groq
 import datetime
 import os
@@ -182,7 +182,7 @@ Keep your responses conversational, empathetic, and direct. Do not mention this 
                     cursor = conn.cursor()
                     cursor.execute(
                         "INSERT INTO chat_insights (date, insight, category, duration_hours) VALUES (?, ?, ?, ?)",
-                        (datetime.date.today().strftime("%Y-%m-%d"), detail, category, duration)
+                        (get_local_today().strftime("%Y-%m-%d"), detail, category, duration)
                     )
                     conn.commit()
                     conn.close()

@@ -1,5 +1,5 @@
 import streamlit as st
-from backend.database import initialize_db, get_connection
+from backend.database import initialize_db, get_connection, get_local_today
 from ai.service import generate_day_plan, get_mood_history, generate_motivation_quote
 from frontend.styling import apply_global_css
 import datetime
@@ -37,12 +37,12 @@ done_tasks = cursor.fetchone()[0]
 total_tasks = pending_tasks + done_tasks
 
 # Get today's mood log
-today = datetime.date.today().strftime("%Y-%m-%d")
+today = get_local_today().strftime("%Y-%m-%d")
 cursor.execute("SELECT mood, sleep FROM daily_logs WHERE date = ?", (today,))
 mood_log = cursor.fetchone()
 conn.close()
 
-today_display = datetime.date.today().strftime("%a, %b %d")
+today_display = get_local_today().strftime("%a, %b %d")
 mood_labels = {
     1: "Very Low", 2: "Low",
     3: "Neutral", 4: "Good", 5: "Excellent"
@@ -380,7 +380,7 @@ if "mood" in st.session_state:
                     goals = cursor.fetchall()
                     
                     # Fetch classes for today
-                    today_name = datetime.date.today().strftime("%A")
+                    today_name = get_local_today().strftime("%A")
                     cursor.execute(
                         "SELECT subject, day, start_time, end_time FROM timetable WHERE day = ?",
                         (today_name,)
@@ -464,7 +464,7 @@ if "mood" in st.session_state:
                 if done:
                     conn = get_connection()
                     cursor = conn.cursor()
-                    today_str = datetime.date.today().strftime("%Y-%m-%d")
+                    today_str = get_local_today().strftime("%Y-%m-%d")
                     cursor.execute("UPDATE tasks SET is_done = 1, completed_date = ? WHERE id = ?", (today_str, task_id))
                     conn.commit()
                     conn.close()
@@ -496,7 +496,7 @@ if "mood" in st.session_state:
                     # Log adjustments to chatbot insights for scheduling
                     conn = get_connection()
                     cursor = conn.cursor()
-                    today_str = datetime.date.today().strftime("%Y-%m-%d")
+                    today_str = get_local_today().strftime("%Y-%m-%d")
                     cursor.execute(
                         "INSERT INTO chat_insights (date, insight, category) VALUES (?, ?, ?)",
                         (today_str, f"User adjustment request: {adjust_input}", "schedule_adjustment")
@@ -517,7 +517,7 @@ if "mood" in st.session_state:
             new_title = st.text_input("Task Title", placeholder="e.g. Read Chapter 4")
             col_date, col_type = st.columns(2)
             with col_date:
-                new_deadline = st.date_input("Deadline", value=datetime.date.today())
+                new_deadline = st.date_input("Deadline", value=get_local_today())
             with col_type:
                 new_priority = st.selectbox(
                     "Priority",

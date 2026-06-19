@@ -1,5 +1,5 @@
 import streamlit as st
-from backend.database import get_connection
+from backend.database import get_connection, get_local_today
 import datetime
 import pandas as pd
 from frontend.styling import apply_global_css
@@ -62,8 +62,8 @@ with tab_timetable:
         sem_row = cursor.fetchone()
         conn.close()
         
-        default_start = datetime.date.today()
-        default_end = datetime.date.today() + datetime.timedelta(days=120)
+        default_start = get_local_today()
+        default_end = get_local_today() + datetime.timedelta(days=120)
         
         if sem_row:
             try:
@@ -233,7 +233,7 @@ with tab_attendance:
             st.subheader("Mark Attendance")
             with st.form("mark_attendance_form", clear_on_submit=True):
                 selected_subject = st.selectbox("Select Subject", subjects)
-                selected_date = st.date_input("Date", value=datetime.date.today())
+                selected_date = st.date_input("Date", value=get_local_today())
                 selected_status = st.selectbox("Status", ["Present", "Absent"])
                 
                 if st.form_submit_button("Save Attendance Record"):
@@ -275,7 +275,7 @@ with tab_attendance:
                 start_dt = datetime.date.fromisoformat(semester_row[0])
                 end_dt = min(
                     datetime.date.fromisoformat(semester_row[1]),
-                    datetime.date.today()
+                    get_local_today()
                 )
                 total_classes = calculate_total_classes(selected_bunk_subject, start_dt, end_dt)
             else:
@@ -346,7 +346,7 @@ with tab_attendance:
                 start_dt = datetime.date.fromisoformat(semester_row[0])
                 end_dt = min(
                     datetime.date.fromisoformat(semester_row[1]),
-                    datetime.date.today()
+                    get_local_today()
                 )
                 subj_total = calculate_total_classes(subj, start_dt, end_dt)
             else:

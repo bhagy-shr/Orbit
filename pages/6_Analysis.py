@@ -1,5 +1,5 @@
 import streamlit as st
-from backend.database import get_connection
+from backend.database import get_connection, get_local_today
 import datetime
 import plotly.graph_objects as go
 from frontend.styling import apply_global_css
@@ -14,7 +14,7 @@ st.title("Weekly Analytics & Insights")
 st.markdown("<p style='color: #94a3b8; font-size: 1.1rem; margin-top: -15px; margin-bottom: 25px;'>A 7-day retrospective of your productivity metrics, focus habits, and distractions.</p>", unsafe_allow_html=True)
 
 # Helper: Get dates for past 7 days
-today = datetime.date.today()
+today = get_local_today()
 past_7_days = [today - datetime.timedelta(days=i) for i in range(6, -1, -1)]
 past_7_dates_str = [d.strftime("%Y-%m-%d") for d in past_7_days]
 

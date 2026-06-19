@@ -4,6 +4,34 @@ def get_connection():
     conn = sqlite3.connect("orbit.db")
     return conn
 
+TIMEZONE_OPTIONS = {
+    "UTC +05:30 (India/IST)": 5.5,
+    "UTC +00:00 (GMT/UTC)": 0.0,
+    "UTC +01:00 (London/BST/CET)": 1.0,
+    "UTC +02:00 (EET/CAT)": 2.0,
+    "UTC +03:00 (MSK/EAT)": 3.0,
+    "UTC +04:00 (GST)": 4.0,
+    "UTC +05:00 (PKT)": 5.0,
+    "UTC +06:00 (BST)": 6.0,
+    "UTC +07:00 (WIB/ICT)": 7.0,
+    "UTC +08:00 (SGT/CST)": 8.0,
+    "UTC +09:00 (JST/KST)": 9.0,
+    "UTC +10:00 (AEST)": 10.0,
+    "UTC +11:00 (AEDT)": 11.0,
+    "UTC +12:00 (NZST)": 12.0,
+    "UTC -01:00 (AZOT)": -1.0,
+    "UTC -02:00 (FNT)": -2.0,
+    "UTC -03:00 (ART/BRT)": -3.0,
+    "UTC -04:00 (AST/EDT)": -4.0,
+    "UTC -05:00 (EST/CDT)": -5.0,
+    "UTC -06:00 (CST/MDT)": -6.0,
+    "UTC -07:00 (MST/PDT)": -7.0,
+    "UTC -08:00 (PST/AKDT)": -8.0,
+    "UTC -09:00 (AKST)": -9.0,
+    "UTC -10:00 (HST)": -10.0,
+    "UTC -11:00 (SST)": -11.0,
+}
+
 def initialize_db():
     conn = get_connection()
     cursor = conn.cursor()
@@ -136,9 +164,16 @@ def initialize_db():
             breakfast_time TEXT,
             lunch_time TEXT,
             dinner_time TEXT,
-            onboarded INTEGER DEFAULT 0
+            onboarded INTEGER DEFAULT 0,
+            timezone_offset REAL DEFAULT 5.5
         )
     """)
+
+    # Upgrade user_profile table if it already exists without new column
+    try:
+        cursor.execute("ALTER TABLE user_profile ADD COLUMN timezone_offset REAL DEFAULT 5.5")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
 
     # Attendance offsets - stores pre-recorded classes for mid-semester users
     cursor.execute("""
@@ -164,6 +199,27 @@ def initialize_db():
     conn.commit()
     conn.close()
 
+def get_user_timezone_offset():
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT timezone_offset FROM user_profile LIMIT 1")
+        row = cursor.fetchone()
+        offset = row[0] if (row and row[0] is not None) else 5.5
+    except Exception:
+        offset = 5.5
+    finally:
+        conn.close()
+    return offset
+
+def get_local_now():
+    import datetime
+    offset = get_user_timezone_offset()
+    return datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=offset)
+
+def get_local_today():
+    return get_local_now().date()
+
 def escalate_task_priorities():
     conn = get_connection()
     cursor = conn.cursor()
@@ -171,7 +227,7 @@ def escalate_task_priorities():
     rows = cursor.fetchall()
     
     import datetime
-    today = datetime.date.today()
+    today = get_local_today()
     for row_id, deadline_str, task_type in rows:
         if deadline_str:
             try:

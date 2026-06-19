@@ -1,5 +1,5 @@
 import streamlit as st
-from backend.database import get_connection
+from backend.database import get_connection, get_local_today
 import datetime
 from frontend.styling import apply_global_css
 
@@ -36,7 +36,7 @@ with col_tasks:
             try:
                 deadline_val = datetime.date.fromisoformat(t_deadline)
             except ValueError:
-                deadline_val = datetime.date.today()
+                deadline_val = get_local_today()
                 
             priority_options = ["High Priority", "Medium Priority", "Low Priority", "Club / Extracurricular", "Personal Goal"]
             mapped_type = "Medium Priority"
@@ -135,7 +135,7 @@ with col_tasks:
             new_title = st.text_input("Task Title", placeholder="e.g. Complete Chemistry assignment")
             col_date, col_priority = st.columns(2)
             with col_date:
-                new_deadline = st.date_input("Deadline", value=datetime.date.today())
+                new_deadline = st.date_input("Deadline", value=get_local_today())
             with col_priority:
                 new_priority = st.selectbox(
                     "Priority Category",
@@ -252,7 +252,7 @@ with col_tasks:
                 if done:
                     conn = get_connection()
                     cursor = conn.cursor()
-                    today_str = datetime.date.today().strftime("%Y-%m-%d")
+                    today_str = get_local_today().strftime("%Y-%m-%d")
                     cursor.execute("UPDATE tasks SET is_done = 1, completed_date = ? WHERE id = ?", (today_str, task_id))
                     conn.commit()
                     conn.close()
