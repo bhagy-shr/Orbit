@@ -38,6 +38,24 @@ def to_24h(time_str):
     return t_clean
 
 
+def parse_time_to_mins(time_str):
+    if not time_str:
+        return None
+    time_str = time_str.strip()
+    try:
+        if "AM" in time_str.upper() or "PM" in time_str.upper():
+            dt = datetime.datetime.strptime(time_str.upper(), "%I:%M %p")
+        else:
+            dt = datetime.datetime.strptime(time_str, "%H:%M")
+        return dt.hour * 60 + dt.minute
+    except ValueError:
+        try:
+            dt = datetime.datetime.strptime(time_str.upper(), "%H:%M %p")
+            return dt.hour * 60 + dt.minute
+        except ValueError:
+            return None
+
+
 def generate_motivation_quote(mood, sleep):
     """Generates a highly personalized motivation quote based on mood and energy (sleep)"""
     global client
@@ -116,8 +134,12 @@ def generate_day_plan(mood, sleep, tasks, goals, timetable,
         dinner_t = to_24h(dinner_t)
     else:
         user_name, wake_t, sleep_t, active_t, bfast_t, lunch_t, dinner_t = (
-            "Student", "07:00", "23:00", "Evening", "08:00", "13:00", "20:00"
+            "Student", "07:00", "23:00", "Evening Focus", "08:00", "13:00", "20:00"
         )
+
+    active_t_norm = active_t
+    if active_t_norm == "Evening":
+        active_t_norm = "Evening Focus"
 
     # ── DETECT MOOD PATTERNS & SLEEP DEBT ─────────────────
     low_mood_days = 0
@@ -139,223 +161,329 @@ def generate_day_plan(mood, sleep, tasks, goals, timetable,
     recent_sleep_text = ", ".join(recent_sleep_log) if recent_sleep_log else "No recent sleep logged."
     struggling = low_mood_days >= 5
 
-    # ── FORMAT CONTEXT FOR PROMPT ────────────────────────
-    tasks_text = ""
-    if tasks:
-        for task in tasks:
-            # Handle task list elements safely depending on tuple length
-            if len(task) >= 8:
-                task_id, title, deadline, task_type, is_done, allocated_hours, pref_start, pref_end = task[:8]
-            elif len(task) == 5:
-                task_id, title, deadline, task_type, is_done = task
-                allocated_hours, pref_start, pref_end = None, None, None
-            else:
-                title, deadline, task_type, is_done = task[1], task[2], task[3], task[4]
-                allocated_hours, pref_start, pref_end = None, None, None
-
-            if not is_done:
-                details = []
-                if allocated_hours:
-                    details.append(f"duration: {allocated_hours} hours")
-                if pref_start and pref_end:
-                    details.append(f"preferred slot: {pref_start} to {pref_end}")
-                elif pref_start:
-                    details.append(f"preferred slot: {pref_start}")
-                
-                details_str = f" ({', '.join(details)} )" if details else ""
-                tasks_text += f"- {title} [{task_type}]{details_str} due {deadline}\n"
+    # ── BUILD THE DETERMINISTIC TIMETABLE ALGORITHMICALLY ──
+    wake_m = parse_time_to_mins(wake_t) or 300
+    sleep_m = parse_time_to_mins(sleep_t) or 1380
+    bfast_m = parse_time_to_mins(bfast_t) or 480
+    lunch_m = parse_time_to_mins(lunch_t) or 780
+    dinner_m = parse_time_to_mins(dinner_t) or 1200
+    
+    if sleep_m < wake_m:
+        total_mins = (1440 - wake_m) + sleep_m
     else:
-        tasks_text = "No pending tasks"
+        total_mins = sleep_m - wake_m
+        
+    def to_relative(m):
+        if m is None:
+            return None
+        r = m - wake_m
+        if r < 0:
+            r += 1440
+        return r
 
-    goals_text = ""
-    if goals:
-        for goal in goals:
-            title, frequency, target = goal[1], goal[2], goal[3]
-            goals_text += f"- {title} ({frequency}, target: {target})\n"
-    else:
-        goals_text = "No recurring goals set"
+    slot_size = 30
+    num_slots = total_mins // slot_size
+    slots = [{"start_rel": i * slot_size, "end_rel": (i + 1) * slot_size, "labels": []} for i in range(num_slots)]
 
-    timetable_text = ""
+    # Helper to check if a relative middle time overlaps a range
+    def is_in_range(m, start, end):
+        if end > start:
+            return start <= m < end
+        else:
+            return m >= start or m < end
+
+    # 1. Place classes
     if timetable:
         for subject, day, start_time, end_time in timetable:
-            timetable_text += f"- {subject} Class: {start_time} to {end_time}\n"
-    else:
-        timetable_text = "No classes today"
+            s_m = parse_time_to_mins(start_time)
+            e_m = parse_time_to_mins(end_time)
+            if s_m is not None and e_m is not None:
+                for slot in slots:
+                    mid = (wake_m + slot["start_rel"] + 15) % 1440
+                    if is_in_range(mid, s_m, e_m):
+                        slot["labels"].append(f"🎓 Class: {subject}")
 
-    warnings_text = ""
-    if attendance_warnings:
-        for subject, percentage in attendance_warnings:
-            warnings_text += f"- {subject}: {percentage:.1f}% (below 75%)\n"
-    else:
-        warnings_text = "All subjects in good standing"
+    # 2. Place meals (always added)
+    def place_fixed_event(start_abs, duration, label):
+        for slot in slots:
+            mid = (wake_m + slot["start_rel"] + 15) % 1440
+            if is_in_range(mid, start_abs, (start_abs + duration) % 1440):
+                slot["labels"].append(label)
 
-    insights_text = ""
+    place_fixed_event(bfast_m, 30, "🍳 Breakfast")
+    place_fixed_event(lunch_m, 45, "🍱 Lunch")
+    place_fixed_event(dinner_m, 45, "🍽️ Dinner")
+
+    # 3. Place manual adjustments
     if insights:
-        for insight_str, category, duration in insights:
+        for adj_str, category, duration in insights:
             if category == "schedule_adjustment":
-                insights_text += f"- Manual User Schedule Adjustment: {insight_str}\n"
+                time_slots = re.findall(r'(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})', adj_str)
+                if time_slots:
+                    for start_s, end_s in time_slots:
+                        s_m = parse_time_to_mins(start_s)
+                        e_m = parse_time_to_mins(end_s)
+                        if s_m is not None and e_m is not None:
+                            clean_adj = adj_str.replace("User adjustment request:", "").replace("User adjustment request", "").strip()
+                            place_fixed_event(s_m, (e_m - s_m) % 1440, f"⚙️ {clean_adj}")
+
+    # 4. Filter and sort tasks
+    filtered_tasks = []
+    has_high_priority = False
+    for task in tasks:
+        if len(task) >= 8:
+            task_id, title, deadline, task_type, is_done, alloc_h, pref_start, pref_end = task[:8]
+        elif len(task) == 5:
+            task_id, title, deadline, task_type, is_done = task
+            alloc_h, pref_start, pref_end = None, None, None
+        else:
+            title, deadline, task_type, is_done = task[1], task[2], task[3], task[4]
+            alloc_h, pref_start, pref_end = None, None, None
+
+        if overwhelmed and ("low" in str(task_type).lower() or "🟡" in str(task_type)):
+            continue  # Drop low priority tasks entirely when overwhelmed
+
+        circle = "⚪"
+        if "🔴" in str(task_type) or "High" in str(task_type):
+            circle = "🔴"
+            has_high_priority = True
+        elif "🔵" in str(task_type) or "Medium" in str(task_type):
+            circle = "🔵"
+        elif "🟡" in str(task_type) or "Low" in str(task_type):
+            circle = "🟡"
+
+        filtered_tasks.append({
+            "title": title,
+            "circle": circle,
+            "pref_start": pref_start,
+            "pref_end": pref_end,
+            "alloc_h": alloc_h or 1.0,
+            "scheduled": False
+        })
+
+    # Place tasks with preferred slots exactly as they are (even if clash)
+    for t in filtered_tasks:
+        if t["pref_start"] and t["pref_end"]:
+            s_m = parse_time_to_mins(t["pref_start"])
+            e_m = parse_time_to_mins(t["pref_end"])
+            if s_m is not None and e_m is not None:
+                place_fixed_event(s_m, (e_m - s_m) % 1440, f"{t['circle']} {t['title']}")
+                t["scheduled"] = True
+
+    # Helper to check if a slot falls inside the user's preferred active window
+    def is_slot_in_active(s_rel):
+        abs_m = (wake_m + s_rel) % 1440
+        if active_t_norm == "Morning Focus":
+            if 720 > wake_m:
+                return wake_m <= abs_m < 720
             else:
-                dur_str = f" ({duration}h)" if duration else ""
-                insights_text += f"- Focus Warning: {insight_str}{dur_str} [Category: {category}]\n"
-    else:
-        insights_text = "No recent behavioral alerts"
+                return abs_m >= wake_m or abs_m < 720
+        elif active_t_norm == "Afternoon Focus":
+            return 720 <= abs_m < 1020
+        elif active_t_norm == "Evening Focus":
+            return 1020 <= abs_m < 1260
+        else:  # Night Owl Focus: 21:00 to bedtime (sleep_m)
+            if sleep_m > 1260:
+                return 1260 <= abs_m < sleep_m
+            else:
+                return abs_m >= 1260 or abs_m < sleep_m
 
-    mood_pattern_text = ""
-    if struggling:
-        mood_pattern_text = f"""
-MOOD PATTERN ALERT:
-This student has logged low mood (1-2/5) for {low_mood_days} out of 
-the last 7 days and poor sleep (<6 hours) for {poor_sleep_days} days.
-This is not just a bad day — this is a pattern that needs gentle attention.
-"""
-    elif mood_history:
-        mood_pattern_text = f"""
-RECENT PATTERN:
-Low mood days in last 7 days: {low_mood_days}
-Poor sleep days in last 7 days: {poor_sleep_days}
-"""
+    # Place other tasks based on active window and handle clashes
+    unscheduled = [t for t in filtered_tasks if not t["scheduled"]]
+    for t in unscheduled:
+        duration_mins = int(t["alloc_h"] * 60)
+        needed_slots = (duration_mins + 29) // slot_size
+        if needed_slots <= 0:
+            needed_slots = 1
 
-    # ── BUILD SYSTEM INSTRUCTIONS & SCHEDULING RULES ─────
-    instructions = f"""
-You are Orbit, a personal AI academic companion for a college student named {user_name}.
-Today is {today}.
+        # A. Try to find consecutive empty slots inside active window
+        scheduled = False
+        for i in range(len(slots) - needed_slots + 1):
+            if all(not slots[i+j]["labels"] and is_slot_in_active(slots[i+j]["start_rel"]) for j in range(needed_slots)):
+                for j in range(needed_slots):
+                    slots[i+j]["labels"].append(f"{t['circle']} {t['title']}")
+                scheduled = True
+                break
 
-STUDENT PREFERENCES & WANTS:
-- Waking Time: {wake_t}
-- Bedtime: {sleep_t}
-- Most Active Study Window: {active_t}
-- Meal Times: Breakfast at {bfast_t}, Lunch at {lunch_t}, Dinner at {dinner_t}
+        # B. Try to find any empty slots inside active window (non-consecutive)
+        if not scheduled:
+            empty_active_indices = [idx for idx, slot in enumerate(slots) if not slot["labels"] and is_slot_in_active(slot["start_rel"])]
+            if len(empty_active_indices) >= needed_slots:
+                for idx in empty_active_indices[:needed_slots]:
+                    slots[idx]["labels"].append(f"{t['circle']} {t['title']}")
+                scheduled = True
 
-STUDENT STATUS:
-- Mood today: {mood}/5 — {mood_labels[mood]}
-- Sleep last night: {sleep} hours
-- Recent Sleep History (last 7 days): {recent_sleep_text}
-- Cumulative Sleep Debt: {sleep_debt:.1f} hours
-{mood_pattern_text}
+        # C. Try to find consecutive empty slots anywhere in waking window
+        if not scheduled:
+            for i in range(len(slots) - needed_slots + 1):
+                if all(not slots[i+j]["labels"] for j in range(needed_slots)):
+                    for j in range(needed_slots):
+                        slots[i+j]["labels"].append(f"{t['circle']} {t['title']}")
+                    scheduled = True
+                    break
 
-TODAY'S TIMETABLE CLASSES:
-{timetable_text}
+        # D. Try to find any empty slots anywhere in waking window
+        if not scheduled:
+            empty_indices = [idx for idx, slot in enumerate(slots) if not slot["labels"]]
+            if len(empty_indices) >= needed_slots:
+                for idx in empty_indices[:needed_slots]:
+                    slots[idx]["labels"].append(f"{t['circle']} {t['title']}")
+                scheduled = True
 
-PENDING TASKS & DEDICATED SLOTS:
-{tasks_text}
+        # E. Stack inside active window (clash handling - add multiple things to the preferred focus window)
+        if not scheduled:
+            active_indices = [idx for idx, slot in enumerate(slots) if is_slot_in_active(slot["start_rel"])]
+            if active_indices:
+                for count in range(needed_slots):
+                    idx = active_indices[count % len(active_indices)]
+                    slots[idx]["labels"].append(f"{t['circle']} {t['title']}")
+                scheduled = True
 
-RECURRING GOALS:
-{goals_text}
+        # F. Stack inside any waking window slots as absolute fallback
+        if not scheduled:
+            for count in range(needed_slots):
+                idx = count % len(slots)
+                slots[idx]["labels"].append(f"{t['circle']} {t['title']}")
+            scheduled = True
 
-ATTENDANCE CRITICALITY:
-{warnings_text}
+    # Merge consecutive slots with the exact same combined label string
+    merged_events = []
+    current_event = None
+    for s in slots:
+        labels = s["labels"]
+        if not labels:
+            label_text = "Free Time"
+        else:
+            # Remove duplicates while preserving order
+            seen = set()
+            unique_labels = []
+            for l in labels:
+                if l not in seen:
+                    seen.add(l)
+                    unique_labels.append(l)
+            label_text = " / ".join(unique_labels)
 
-BEHAVIORAL REMINDERS (FROM CHAT BOT):
-{insights_text}
+        if current_event and current_event["label"] == label_text:
+            current_event["end_rel"] = s["end_rel"]
+        else:
+            if current_event:
+                merged_events.append(current_event)
+            current_event = {"start_rel": s["start_rel"], "end_rel": s["end_rel"], "label": label_text}
+    if current_event:
+        merged_events.append(current_event)
 
-CRITICAL SCHEDULING RULES:
-1. **STRICT WAKE-UP & BEDTIME BOUNDARIES**: The generated hourly schedule MUST start exactly at the wake-up time ({wake_t}) and end exactly at the bedtime ({sleep_t}). Under NO circumstances should any slot, activity, class, or task be scheduled before {wake_t} or after {sleep_t} (for example, if wake-up is 05:00 and bedtime is 21:00, there must be absolutely no slots earlier than 05:00 or later than 21:00 in your output plan). The very first item must be at {wake_t} and the very last item must be at {sleep_t}. **24-HOUR FORMAT**: You MUST format all scheduled entries using the 24-hour method (HH:MM - HH:MM) in your generated plan. Never use 12-hour AM/PM formatting in the hourly slots (e.g. output `16:00 - 17:00` instead of `04:00 PM - 05:00 PM`).
-2. Always respect class timetables ({timetable_text}) — never schedule tasks or study sessions during class hours. CRITICAL: Do NOT split, break up, or modify the start and end times of scheduled classes or meetings (e.g. if a class/meeting is scheduled from 09:00 to 11:00, you must list it exactly as "09:00 - 11:00 — Class: [Name]". Do NOT break it into chunks like "09:30 - 10:00"). Preserve class and meeting timings exactly.
-3. Protect breakfast, lunch, and dinner times based on their meal schedule.
-4. **TASK SLOT PRIORITIZATION & CLASH RESOLUTION**:
-   - If a task specifies a "preferred slot" (e.g. `18:00-20:00` or split slots like `13:00-14:00 and 16:00-17:00`), you MUST schedule it in that exact slot. Keep it exactly as it is.
-   - If there is a scheduling conflict/clash, or if you are scheduling other tasks, prioritize placing them in the time window matching the user's **Most Active Study Window** (`{active_t}`):
-     * If active window is `"Morning Focus"`, prioritize scheduling tasks/study blocks before 12:00 (i.e. `05:00 - 12:00`).
-     * If active window is `"Afternoon Focus"`, prioritize scheduling tasks/study blocks between `12:00` and `17:00`.
-     * If active window is `"Evening Focus"`, prioritize scheduling tasks/study blocks between `17:00` and `21:00`.
-     * If active window is `"Night Owl Focus"`, prioritize scheduling tasks/study blocks between `21:00` and bedtime (`{sleep_t}`).
-     * If multiple tasks are scheduled in the preferred window, list them sequentially.
-5. **CRITICAL DEADLINE SAFEGUARD**: If a task's deadline is TODAY ({today_date_str}), you MUST schedule it on today's plan under all circumstances (even if the student is overwhelmed or wants a light day). Never omit a task due today.
-6. **DAILY TASK SCALING (NO DROPPING)**: If a task represents a daily quantity target (e.g. '5 practice questions', '10 exercise problems') and the student is overwhelmed (overwhelmed = True), do NOT drop it completely. Instead, scale the quantity down (e.g., reduce it to '2 practice questions' or '1 practice question') to help them keep their daily habit alive.
-7. If the student has behavioral reminders (e.g. scrolling reels warnings), explicitly insert custom warning tasks/reminders in their schedule (e.g. "20:00 — NO Instagram reels! Work on study instead").
-8. If attendance is below 75% for a subject class today, mark it clearly in their class schedule event as a "Critical - Cannot Bunk!" reminder.
-9. **VISUAL PRIORITY CIRCLES**: You MUST depict every task in the day plan schedule with its priority circle: 🔴 for High Priority, 🔵 for Medium Priority, and 🟡 for Low Priority (e.g., '10:00 — 🔴 [High Priority Task Name]' or '15:30 — 🟡 [Low Priority Task Name]'). Make sure the appropriate circle prefix is placed before the task name.
-10. **MANUAL ADJUSTMENTS OVERRIDE**: If a manual user adjustment request is provided (e.g., '- Manual User Schedule Adjustment: User adjustment request: my [Event Name] from 09:00-11:00' or 'User adjustment request: add [Task/Subject] study block at 16:00-18:00' or in parts like 'User adjustment request: [Task/Subject] study 13:00-14:00 and 16:00-17:00'), you MUST prioritize and implement this change exactly as requested in today's day plan schedule in 24-hour format. This is a direct command from the user: you must override other scheduling constraints (including class timetables or overwhelmed/motivated modes) to schedule this specific block at the exact time and duration specified. Shift other blocks (study times, breaks, meals) around it as necessary to accommodate it.
-11. **ALLOCATED HOURS REQUIREMENT**: If a task has allocated hours (e.g. 2 hours), you MUST schedule the exact number of hours entered for that task. The scheduled block start and end times MUST span the exact duration (e.g. a 2-hour task must be scheduled as a single 2-hour block like '18:00 - 20:00', or split into parts like '13:00-14:00 and 16:00-17:00' that sum to exactly 2 hours). Check your start/end time math carefully to ensure the duration is fully met.
-12. **SLEEP TARGET & DEBT ADJUSTMENT**:
-    - If the student has logged a pattern of sleep deprivation (recent days of 4h, 6h, etc., resulting in a high Cumulative Sleep Debt) AND they have a relatively light task workload today, you MUST gently remind them in the 'NOTE' or 'MOTIVATION' section to sleep early, and schedule their bedtime 1-2 hours earlier in the generated timetable (e.g., schedule '21:00 — Wind down & Sleep early to recover from sleep debt' if normal bedtime is 22:00 or 23:00).
-    - If the student explicitly asks to adjust the timetable to maintain their 7 hours of sleep (e.g. in the Manual User Schedule Adjustment), you MUST adjust the wake-up time or bedtime in the generated schedule to guarantee at least 7 hours of sleep, even if you have to compress study sessions.
-13. **STRICT TASK INTEGRITY (ZERO HALLUCINATIONS)**: You MUST ONLY schedule tasks, classes, and goals that are explicitly listed in the prompt context. Do NOT invent, assume, or add any tasks, study sessions, exams, or activities (such as mock/example tasks or any name not in the user's active task list) that are not present in the student's task list, timetable, or adjustment requests. If a task is not in the data, do not schedule study blocks for it under any circumstance.
-14. **COMPROMISE NOTE FOR HIGH PRIORITY DAYS**: If there are any **🔴 High Priority** tasks in the pending tasks list, you MUST include a note in the **NOTE:** (or **REMEMBER:** if in struggling mode) section of your plan advising the user: *"You have high-priority tasks today. If you are struggling with time, please adjust your timetable manually (using the adjustment box) to decide which tasks you would like to compromise time on."*
-"""
+    # Format timetable into standard layout strings
+    timetable_lines = []
+    timetable_lines.append(f"{wake_t} — 🌅 Morning Routine")
+    for ev in merged_events:
+        if ev["label"] == "Free Time":
+            label_text = "💨 Free Time / Break"
+        else:
+            label_text = ev["label"]
+            
+        start_abs = (wake_m + ev["start_rel"]) % 1440
+        end_abs = (wake_m + ev["end_rel"]) % 1440
+        start_s = f"{start_abs // 60:02d}:{start_abs % 60:02d}"
+        end_s = f"{end_abs // 60:02d}:{end_abs % 60:02d}"
+        timetable_lines.append(f"{start_s} - {end_s} — {label_text}")
+    timetable_lines.append(f"{sleep_t} — 💤 Wind down & Sleep")
+    pre_scheduled_timetable = "\n".join(timetable_lines)
 
-    if struggling:
-        prompt = f"""
-{instructions}
-Create a very light, gentle schedule with maximum 2-3 priorities. Focus heavily on self-care, simple breaks, and warm, friendly support. Encourage them gently to talk to someone they trust if this low mood pattern persists.
-
-Format:
-CHECKING IN: [warm acknowledgment of how they've been feeling this week]
-
-A GENTLE PLAN FOR TODAY:
-[time] — [activity]
-[time] — [activity]
-...
-
-REMEMBER: [one gentle reminder that it's okay to not be okay, including the compromise note if they have high priority tasks today]
-SUPPORT: [warm suggestion to reach out to someone they trust]
-MOTIVATION: [one short, gentle, encouraging line — nothing toxic positivity]
-"""
-    elif overwhelmed:
-        prompt = f"""
-{instructions}
-The student just indicated they feel overwhelmed. Simplify the schedule. **You MUST REMOVE/DROP all Low Priority (🟡) tasks from today's schedule entirely.** Only schedule High or Medium priority tasks, make the rest of the day extremely light with long breaks, and scale down daily quantitative targets.
-**CRITICAL**: If the user has manually requested a schedule adjustment (like increasing study time for a specific subject or task), you MUST honor this request and schedule the increased study block for that subject/task today, overriding the simplified/light guidelines for that specific item.
-
-Format:
-I HEAR YOU: [warm acknowledgment that the plan felt too much]
-
-YOUR LIGHTER PLAN:
-[time] — [activity]
-[time] — [activity]
-...
-
-SKIP TODAY: [what they have permission to let go of today to rest]
-NOTE: [your note to the user, including the compromise note if they have high priority tasks today]
-MOTIVATION: [one gentle encouraging line]
-"""
-    elif motivated:
-        prompt = f"""
-{instructions}
-The student is highly motivated today! Generate a high-intensity study schedule. Squeeze in more tasks, reduce leisure/break times (make breaks shorter, e.g., 10 mins), group focus sessions together, and maximize their active study window ({active_t}). Call these study blocks 'DEEP FOCUS WORKTIME' in the timeline.
-
-Format:
-PLAN FOR TODAY:
-[time] — [activity]
-[time] — [activity]
-...
-
-NOTE: [one line explaining why you planned it this way, including the compromise note if they have high priority tasks today]
-MOTIVATION: [one short encouraging line]
-"""
-    else:
-        prompt = f"""
-{instructions}
-Generate a structured, balanced daily plan for today. Maximize focus during their active study window ({active_t}). 
-
-Format:
-PLAN FOR TODAY:
-[time] — [activity]
-[time] — [activity]
-...
-
-NOTE: [one line explaining why you planned it this way, including the compromise note if they have high priority tasks today]
-MOTIVATION: [one short encouraging line]
-"""
-
+    # ── GENERATE CHATBOT FRIENDLY MESSAGES & QUOTE VIA LLM ─
     global client
     if client is None:
         try:
             client = Groq()
         except Exception:
-            return "Please configure your GROQ_API_KEY environment variable or verify the key inside KEY.MD to generate your day plan."
+            note_msg = "Take today one step at a time."
+            if has_high_priority:
+                note_msg = "You have high-priority tasks today. If you are struggling with time, please adjust your timetable manually (using the adjustment box) to decide which tasks you would like to compromise time on."
+            if overwhelmed:
+                return f"I HEAR YOU: Focus on resting today.\n\nYOUR LIGHTER PLAN:\n{pre_scheduled_timetable}\n\nSKIP TODAY: Low priority tasks\nNOTE: {note_msg}\nMOTIVATION: You got this!"
+            else:
+                return f"PLAN FOR TODAY:\n{pre_scheduled_timetable}\n\nNOTE: {note_msg}\nMOTIVATION: You got this!"
+
+    prompt = f"""
+    You are Orbit, the personal academic AI companion.
+    The student's details:
+    - Name: {user_name}
+    - Mood today: {mood}/5
+    - Sleep last night: {sleep} hours
+    - Overwhelmed: {overwhelmed}
+    - Struggling: {struggling}
+    
+    Please generate:
+    1. A warm daily check-in comment (1-2 sentences) acknowledging their mood/sleep.
+    2. A recommendation of what they can skip or let go of today to rest (1 sentence), or "None" if they are fine.
+    3. A short encouragement note (1 sentence). If they have High Priority tasks today, you MUST include this exact warning message: "You have high-priority tasks today. If you are struggling with time, please adjust your timetable manually (using the adjustment box) to decide which tasks you would like to compromise time on."
+    4. A short motivational quote (1 sentence).
+    
+    Format your response exactly as:
+    CHECKING IN: [text]
+    SKIP TODAY: [text]
+    NOTE: [text]
+    MOTIVATION: [text]
+    """
 
     try:
         response = client.chat.completions.create(
             model="llama-3.1-8b-instant",
-            max_tokens=1000,
+            max_tokens=400,
             messages=[
                 {"role": "user", "content": prompt}
             ]
         )
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"Error contacting Groq API: {str(e)}"
+        llm_text = response.choices[0].message.content
+    except Exception:
+        llm_text = ""
+
+    # Parse response elements
+    checking_in = "Hope you're having a good start to your day!"
+    skip_today = "None"
+    note = "Take things one step at a time."
+    motivation = "You've got this! Let's make today count. ✨"
+
+    for line in llm_text.split("\n"):
+        if line.upper().startswith("CHECKING IN:"):
+            checking_in = line.split(":", 1)[1].strip()
+        elif line.upper().startswith("SKIP TODAY:"):
+            skip_today = line.split(":", 1)[1].strip()
+        elif line.upper().startswith("NOTE:"):
+            note = line.split(":", 1)[1].strip()
+        elif line.upper().startswith("MOTIVATION:"):
+            motivation = line.split(":", 1)[1].strip()
+
+    # Enforce compromise note programmatically
+    if has_high_priority:
+        note = "You have high-priority tasks today. If you are struggling with time, please adjust your timetable manually (using the adjustment box) to decide which tasks you would like to compromise time on."
+
+    # Assemble plan output based on status
+    if struggling:
+        combined_plan = f"""CHECKING IN: {checking_in}
+
+A GENTLE PLAN FOR TODAY:
+{pre_scheduled_timetable}
+
+REMEMBER: {note}
+SUPPORT: Talk to someone you trust if you feel down.
+MOTIVATION: {motivation}"""
+    elif overwhelmed:
+        combined_plan = f"""I HEAR YOU: {checking_in}
+
+YOUR LIGHTER PLAN:
+{pre_scheduled_timetable}
+
+SKIP TODAY: {skip_today}
+NOTE: {note}
+MOTIVATION: {motivation}"""
+    else:
+        combined_plan = f"""PLAN FOR TODAY:
+{pre_scheduled_timetable}
+
+NOTE: {note}
+MOTIVATION: {motivation}"""
+
+    return combined_plan
 
 
 def get_mood_history(days=7):
