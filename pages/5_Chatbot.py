@@ -30,7 +30,11 @@ st.markdown("<p style='color: #94a3b8; font-size: 1.1rem; margin-top: -15px; mar
 # Try loading API key
 if not os.environ.get("GROQ_API_KEY"):
     try:
-        with open("KEY.MD", "r") as f:
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        key_path = os.path.join(base_dir, "KEY.md")
+        if not os.path.exists(key_path):
+            key_path = os.path.join(base_dir, "KEY.MD")
+        with open(key_path, "r") as f:
             content = f.read().strip()
             match = re.search(r'GROQ_API_KEY\s*=\s*["\']([^"\']+)["\']', content)
             if match:

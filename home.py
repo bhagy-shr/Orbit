@@ -376,7 +376,7 @@ if "mood" in st.session_state:
                     tasks = cursor.fetchall()
                     
                     # Fetch goals
-                    cursor.execute("SELECT id, title, frequency, target FROM goals")
+                    cursor.execute("SELECT id, title, frequency, target, time_req FROM goals")
                     goals = cursor.fetchall()
                     
                     # Fetch classes for today

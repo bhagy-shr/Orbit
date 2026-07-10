@@ -304,6 +304,12 @@ with col_goals:
                 frequency = st.selectbox("Frequency", ["Daily", "Weekly"])
             with col_target:
                 target = st.text_input("Target", placeholder="e.g. 10 mins, 5 pages")
+            
+            time_req = st.text_input(
+                "Time / Preferred Slot (e.g. 18:00-19:00 or 1 hour)", 
+                placeholder="e.g. 18:00-19:00 or 30 mins",
+                help="Specify a preferred 24-hour format time slot (HH:MM-HH:MM) or a general duration (e.g. 1.0 or 30 mins) so the AI timetable can schedule it."
+            )
                 
             submitted_goal = st.form_submit_button("Create Habit")
             if submitted_goal:
@@ -311,9 +317,9 @@ with col_goals:
                     conn = get_connection()
                     cursor = conn.cursor()
                     cursor.execute("""
-                        INSERT INTO goals (title, frequency, target)
-                        VALUES (?, ?, ?)
-                    """, (goal_title.strip(), frequency, target.strip()))
+                        INSERT INTO goals (title, frequency, target, time_req)
+                        VALUES (?, ?, ?, ?)
+                    """, (goal_title.strip(), frequency, target.strip(), time_req.strip() if time_req else None))
                     conn.commit()
                     conn.close()
                     st.success(f"Added habit: {goal_title}")
@@ -324,7 +330,7 @@ with col_goals:
     # Render Goals list
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, title, frequency, target FROM goals ORDER BY id ASC")
+    cursor.execute("SELECT id, title, frequency, target, time_req FROM goals ORDER BY id ASC")
     active_goals = cursor.fetchall()
     
     # Fetch current streak count
@@ -336,14 +342,15 @@ with col_goals:
     st.markdown("<br>", unsafe_allow_html=True)
     st.write("**My Active Habits**")
     if active_goals:
-        for goal_id, title, freq, trg in active_goals:
+        for goal_id, title, freq, trg, t_req in active_goals:
             col_goal_text, col_goal_del = st.columns([7, 1])
             with col_goal_text:
+                time_req_str = f" — Time: {t_req}" if t_req else ""
                 st.markdown(
                     f"""
                     <div class="custom-card" style="padding: 12px; margin-bottom: 8px;">
                         <div style="font-weight: 500; font-size: 0.95rem; color: #ffffff;">{title}</div>
-                        <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 3px;">{freq} — Target: {trg}</div>
+                        <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 3px;">{freq} — Target: {trg}{time_req_str}</div>
                     </div>
                     """,
                     unsafe_allow_html=True

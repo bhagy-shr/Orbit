@@ -4,10 +4,14 @@ import datetime
 from groq import Groq
 from backend.database import get_connection, get_local_today
 
-# Try to load Groq API key from KEY.MD if not in environment
+# Try to load Groq API key from KEY.md / KEY.MD if not in environment
 if not os.environ.get("GROQ_API_KEY"):
     try:
-        with open("KEY.MD", "r") as f:
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        key_path = os.path.join(base_dir, "KEY.md")
+        if not os.path.exists(key_path):
+            key_path = os.path.join(base_dir, "KEY.MD")
+        with open(key_path, "r") as f:
             content = f.read().strip()
             match = re.search(r'GROQ_API_KEY\s*=\s*["\']([^"\']+)["\']', content)
             if match:
@@ -252,14 +256,90 @@ def generate_day_plan(mood, sleep, tasks, goals, timetable,
         elif "🟡" in str(task_type) or "Low" in str(task_type):
             circle = "🟡"
 
+        # Check deadline comparison
+        is_today_or_overdue = False
+        if deadline:
+            try:
+                deadline_dt = datetime.date.fromisoformat(deadline)
+                if deadline_dt <= get_local_today():
+                    is_today_or_overdue = True
+            except Exception:
+                pass
+        
+        priority_score = 0 if is_today_or_overdue else 2
+
         filtered_tasks.append({
             "title": title,
             "circle": circle,
             "pref_start": pref_start,
             "pref_end": pref_end,
             "alloc_h": alloc_h or 1.0,
-            "scheduled": False
+            "scheduled": False,
+            "priority_score": priority_score
         })
+
+    # Add daily goals (habits) to filtered_tasks
+    if goals:
+        for goal in goals:
+            # goal is: (id, title, frequency, target, time_req)
+            if len(goal) >= 5:
+                g_id, g_title, g_freq, g_target, g_time_req = goal[:5]
+            else:
+                g_id, g_title, g_freq, g_target = goal[:4]
+                g_time_req = None
+
+            if g_freq.lower() == "daily":
+                pref_start, pref_end = None, None
+                duration_h = 0.5  # default 30 mins
+                
+                if g_time_req:
+                    time_clean = g_time_req.strip()
+                    if "-" in time_clean:
+                        parts = time_clean.split("-")
+                        if len(parts) == 2:
+                            pref_start = parts[0].strip()
+                            pref_end = parts[1].strip()
+                            s_m = parse_time_to_mins(pref_start)
+                            e_m = parse_time_to_mins(pref_end)
+                            if s_m is not None and e_m is not None:
+                                duration_h = ((e_m - s_m) % 1440) / 60.0
+                    else:
+                        try:
+                            target_lower = time_clean.lower()
+                            if "min" in target_lower:
+                                mins = int(re.search(r'\d+', target_lower).group())
+                                duration_h = mins / 60.0
+                            elif "hour" in target_lower or "hr" in target_lower:
+                                hrs = float(re.search(r'[0-9.]+', target_lower).group())
+                                duration_h = hrs
+                            else:
+                                duration_h = float(re.search(r'[0-9.]+', target_lower).group())
+                        except Exception:
+                            pass
+                else:
+                    try:
+                        target_lower = g_target.lower()
+                        if "min" in target_lower:
+                            mins = int(re.search(r'\d+', target_lower).group())
+                            duration_h = mins / 60.0
+                        elif "hour" in target_lower or "hr" in target_lower:
+                            hrs = float(re.search(r'[0-9.]+', target_lower).group())
+                            duration_h = hrs
+                    except Exception:
+                        pass
+                
+                filtered_tasks.append({
+                    "title": f"Habit: {g_title} ({g_target})",
+                    "circle": "🎯",
+                    "pref_start": pref_start,
+                    "pref_end": pref_end,
+                    "alloc_h": duration_h,
+                    "scheduled": False,
+                    "priority_score": 1  # Daily Habit priority
+                })
+
+    # Sort tasks: Today's tasks (0) first, then daily habits (1), then future tasks (2)
+    filtered_tasks.sort(key=lambda x: x["priority_score"])
 
     # Place tasks with preferred slots exactly as they are (even if clash)
     for t in filtered_tasks:

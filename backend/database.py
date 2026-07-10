@@ -1,7 +1,10 @@
 import sqlite3
+import os
 
 def get_connection():
-    conn = sqlite3.connect("orbit.db")
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    db_path = os.path.join(base_dir, "orbit.db")
+    conn = sqlite3.connect(db_path)
     return conn
 
 TIMEZONE_OPTIONS = {
@@ -80,9 +83,16 @@ def initialize_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
             frequency TEXT NOT NULL,
-            target TEXT NOT NULL
+            target TEXT NOT NULL,
+            time_req TEXT
         )
     """)
+
+    # Upgrade goals table if it already exists without new column
+    try:
+        cursor.execute("ALTER TABLE goals ADD COLUMN time_req TEXT")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
 
     # Daily logs - mood, sleep, date
     cursor.execute("""
